@@ -36,15 +36,16 @@ def add_gaussian_noise(data,mean,std):
     return new_data
 
 # load data
-for dataset in ['training', 'testing']:
-    ret = load_mnist(path=PATH_MNIST, dataset=dataset)
+if __name__ == "__main__": 
+    for dataset in ['training', 'testing']:
+        ret = load_mnist(path=PATH_MNIST, dataset=dataset)
 
-    X = ret[0]
-    Y = ret[1]
+        X = ret[0]
+        Y = ret[1]
 
-    bin_X = np.array(binaryze_dataset(X,bin_threshold),dtype=int)
-    sap_bin_X = np.array(add_salt_and_pepper(bin_X,
-        salt_pepper_proportion),dtype=bool)
+        bin_X = np.array(binaryze_dataset(X,bin_threshold),dtype=int)
+        sap_bin_X = np.array(add_salt_and_pepper(bin_X,
+            salt_pepper_proportion),dtype=bool)
 
-    np.save(path.join(PATH_SAVE, "{}_X".format(dataset)), sap_bin_X)
-    np.save(path.join(PATH_SAVE, "{}_Y".format(dataset)), Y)
+        np.save(path.join(PATH_SAVE, "{}_X".format(dataset)), sap_bin_X)
+        np.save(path.join(PATH_SAVE, "{}_Y".format(dataset)), Y)
