@@ -27,7 +27,7 @@ loss='binary_crossentropy'
 model = Sequential()
 model.add(Dense(100, input_dim=28*28, init='glorot_uniform', activation='tanh'))
 model.add(Dense(50, init='glorot_uniform', activation='tanh'))
-model.add(Dense(8, input_dim=2, init='glorot_uniform', activation='tanh'))
+model.add(Dense(10, init='glorot_uniform', activation='tanh'))
 #model.add(Dense(12, init='uniform', activation='tanh'))
 model.add(Dense(1, init='glorot_uniform', activation='sigmoid'))
 model.compile(optimizer=optimizer, loss=loss)
@@ -38,7 +38,9 @@ def reliability_diagram(prob, Y):
     plt.plot([0,1],[0,1], 'r--')
     plt.plot(hist_pos[1][:-1]+0.05, np.true_divide(hist_pos[0],hist_tot[0]+1),
              'bx-', linewidth=2.0)
-    plt.title('reliability map')
+
+def compute_accuracy(scores, labels, threshold=0.5):
+    return np.mean((scores >= threshold) == labels)
 
 X = np.load(path.join(PATH_SAVE, "training_X.npy"))
 X = np.reshape(X, (np.shape(X)[0], -1))
@@ -47,11 +49,15 @@ Y = np.load(path.join(PATH_SAVE, "training_Y.npy"))
 # FIXME : I am reducing the size of the dataset to test the code
 X = X[0:10000]
 Y = Y[0:10000]
-Y[Y!=5] = 0
-Y[Y==5] = 1
+Y = np.in1d(Y,[0,2,4,6,8])
+#Y[Y!=5] = 0
+#Y[Y==5] = 1
 
 error = np.zeros(num_epochs+1)
 error[0] = model.evaluate(X, Y, batch_size=batch_size)
+accuracy = np.zeros(num_epochs+1)
+prob = model.predict(X, batch_size=batch_size)
+accuracy[0] = compute_accuracy(prob, Y)
 for epoch in range(1,num_epochs+1):
     #X, Y = generate_samples(shape=shape, samples=samples)
     model.fit(X, Y, nb_epoch=1, batch_size=batch_size)
@@ -61,22 +67,48 @@ for epoch in range(1,num_epochs+1):
     prob = model.predict(X)
     fig = plt.figure('reliability_diagram')
     plt.clf()
+    plt.title('Reliability diagram')
     reliability_diagram(prob, Y)
     plt.show()
     plt.savefig('rel_dia_{:03}.svg'.format(epoch))
 
     fig = plt.figure('histogram_scores')
     plt.clf()
+    plt.title('Histogram of scores')
     plt.hist(prob)
     plt.show()
     plt.savefig('hist_scor_{:03}.svg'.format(epoch))
+
+    accuracy[epoch] = compute_accuracy(prob, Y)
+    fig = plt.figure('accuracy')
+    plt.clf()
+    plt.title('Accuracy')
+    plt.plot(range(0,epoch), accuracy[:epoch])
+    plt.show()
+
+    fig = plt.figure('error', figsize=(6,4))
+    plt.clf()
+    plt.title(loss)
+    plt.plot(range(0,epoch), error[:epoch])
+    plt.ylabel(loss)
+    plt.xlabel('epoch')
+    plt.show()
 
     plt.pause(0.1)
 
 fig = plt.figure('error', figsize=(6,4))
 plt.clf()
+plt.title(loss)
 plt.plot(range(0,num_epochs+1), error[0:])
 plt.ylabel(loss)
 plt.xlabel('epoch')
 plt.show()
 plt.savefig('{}.svg'.format(loss))
+
+accuracy[epoch] = compute_accuracy(prob, Y)
+fig = plt.figure('accuracy')
+plt.clf()
+plt.title("Accuracy")
+plt.plot(range(0,epoch), accuracy[:epoch])
+plt.show()
+plt.savefig('accuracy_{:03}.svg'.format(epoch))
