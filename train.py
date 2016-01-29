@@ -175,11 +175,12 @@ for epoch in range(1,num_epochs+1):
     history = model.fit(X_train, Y_train, nb_epoch=1, batch_size=batch_size,
                         show_accuracy=True)
 
-    # TODO use the history instead of evaluate again the training set
-    score_train = model.evaluate(X_train, Y_train, batch_size=batch_size, show_accuracy=True)
+    error_train[epoch] = history.totals['loss']*batch_size/history.totals['size']
+    accuracy_train[epoch] = history.totals['acc']*batch_size/history.totals['size']
+
     score_test = model.evaluate(X_test, Y_test, batch_size=batch_size, show_accuracy=True)
-    error_train[epoch] = score_train[0]
     error_test[epoch] = score_test[0]
+    accuracy_test[epoch] = score_test[1]
     print("EPOCH {}, train error = {}, test error = {}".format(epoch, error_train[epoch], error_test[epoch]))
 
 
@@ -189,8 +190,6 @@ for epoch in range(1,num_epochs+1):
 
     plot_histogram_scores(prob_train, epoch)
 
-    accuracy_train[epoch] = score_train[1]
-    accuracy_test[epoch] = score_test[1]
     plot_accuracy(accuracy_train, accuracy_test, epoch)
 
     plot_error(error_train, error_test, epoch, loss)
