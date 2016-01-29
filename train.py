@@ -28,11 +28,16 @@ PATH_SAVE='datasets/mnist/'
 optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-train_size=30000
+train_size=50
 num_epochs=30
 batch_size=100
-nb_classes=10
-loss='categorical_crossentropy'
+nb_classes=2
+
+if nb_classes == 2:
+    loss='binary_crossentropy'
+    loss='mse'
+else:
+    loss='categorical_crossentropy'
 
 def create_cnn():
     model = Sequential()
@@ -69,7 +74,10 @@ def create_mlp(num_out=10):
     model.add(Activation('relu'))
     model.add(Dropout(0.2))
     model.add(Dense(num_out))
-    model.add(Activation('softmax'))
+    if num_out == 1:
+        model.add(Activation('sigmoid'))
+    else:
+        model.add(Activation('softmax'))
     return model
 
 def reliability_diagram(prob, Y, label=''):
@@ -93,7 +101,7 @@ def plot_reliability_diagram(prob_train, Y_train, prob_test, Y_test, epoch,
         plt.savefig('rel_dia_{:03}.svg'.format(epoch))
 
 def compute_accuracy(scores, labels, threshold=0.5):
-    return np.mean((scores >= threshold) == labels)
+    return np.mean((scores >= threshold).flatten() == labels.flatten())
 
 def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
                     proportion=0.1):
@@ -101,11 +109,14 @@ def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
     X = X.astype('float32')
     X /= 255.0
     print(X.shape[0], 'samples')
-    Y = np_utils.to_categorical(y,nb_classes)
     if binarize:
         X = binaryze_dataset(X, threshold=0.5)
     if noise:
         X = add_salt_and_pepper(X,proportion=proportion)
+    if nb_classes == 2:
+        Y = np.in1d(y,[0,2,4,6,8]).astype('float64')
+    else:
+        Y = np_utils.to_categorical(y,nb_classes)
     return X,Y
 
 def imshow_samples(X_train, y_train, X_test, y_test, num_samples=4, save=True):
@@ -152,19 +163,23 @@ def plot_histogram_scores(scores, epoch, save=True):
     if save:
         plt.savefig('hist_scor_{:03}.svg'.format(epoch))
 
-model = create_mlp(num_out=nb_classes)
+if nb_classes == 2:
+    model = create_mlp(num_out=1)
+    model.compile(optimizer=optimizer, loss=loss, class_mode='binary')
+else:
+    model = create_mlp(num_out=nb_classes)
+    model.compile(optimizer=optimizer, loss=loss)
 #plot(model, to_file='model.png')
-model.compile(optimizer=optimizer, loss=loss)
 
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
 X_train = X_train[:train_size]
 y_train = y_train[:train_size]
 
-X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
-        binarize=True, noise=True, proportion=0.4)
-X_test, Y_test = preprocess_data(X_test, y_test, nb_classes=nb_classes,
-        binarize=True, noise=True, proportion=0.4)
+X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes)
+#        binarize=True, noise=True, proportion=0.4)
+X_test, Y_test = preprocess_data(X_test, y_test, nb_classes=nb_classes)
+#        binarize=True, noise=True, proportion=0.4)
 
 imshow_samples(X_train, y_train, X_test, y_test, 5)
 
@@ -179,11 +194,11 @@ score = model.evaluate(X_test, Y_test, batch_size=batch_size, show_accuracy=True
 error_test[0] = score[0]
 accuracy_test[0] = score[1]
 for epoch in range(1,num_epochs+1):
-    history = model.fit(X_train, Y_train, nb_epoch=1, batch_size=batch_size,
+    hist = model.fit(X_train, Y_train, nb_epoch=1, batch_size=batch_size,
                         show_accuracy=True)
 
-    error_train[epoch] = history.totals['loss']*batch_size/history.totals['size']
-    accuracy_train[epoch] = history.totals['acc']*batch_size/history.totals['size']
+    error_train[epoch] = hist.history['loss'][0]
+    accuracy_train[epoch] = hist.history['acc'][0]
 
     score_test = model.evaluate(X_test, Y_test, batch_size=batch_size, show_accuracy=True)
     error_test[epoch] = score_test[0]
@@ -193,12 +208,12 @@ for epoch in range(1,num_epochs+1):
 
     prob_train = model.predict(X_train)
     prob_test = model.predict(X_test)
+    print"Train acc = {}, Val acc = {}".format(compute_accuracy(prob_train,
+        Y_train), compute_accuracy(prob_test, Y_test))
+
+    # PLOTS
     plot_reliability_diagram(prob_train, Y_train, prob_test, Y_test, epoch)
-
     plot_histogram_scores(prob_train, epoch)
-
     plot_accuracy(accuracy_train, accuracy_test, epoch)
-
     plot_error(error_train, error_test, epoch, loss)
-
     plt.pause(0.1)
