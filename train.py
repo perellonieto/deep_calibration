@@ -28,8 +28,10 @@ PATH_SAVE='datasets/mnist/'
 optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+train_size=30000
 num_epochs=30
 batch_size=100
+nb_classes=10
 loss='categorical_crossentropy'
 
 def create_cnn():
@@ -93,7 +95,8 @@ def plot_reliability_diagram(prob_train, Y_train, prob_test, Y_test, epoch,
 def compute_accuracy(scores, labels, threshold=0.5):
     return np.mean((scores >= threshold) == labels)
 
-def preprocess_data(X,y,nb_classes=10, binarize=False, seasoning=False):
+def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
+                    proportion=0.1):
     X = X.reshape(-1, 784)
     X = X.astype('float32')
     X /= 255.0
@@ -101,8 +104,8 @@ def preprocess_data(X,y,nb_classes=10, binarize=False, seasoning=False):
     Y = np_utils.to_categorical(y,nb_classes)
     if binarize:
         X = binaryze_dataset(X, threshold=0.5)
-    if seasoning:
-        X = add_salt_and_pepper(X,proportion=0.10)
+    if noise:
+        X = add_salt_and_pepper(X,proportion=proportion)
     return X,Y
 
 def imshow_samples(X_train, y_train, X_test, y_test, num_samples=4, save=True):
@@ -149,15 +152,19 @@ def plot_histogram_scores(scores, epoch, save=True):
     if save:
         plt.savefig('hist_scor_{:03}.svg'.format(epoch))
 
-nb_classes=10
 model = create_mlp(num_out=nb_classes)
 #plot(model, to_file='model.png')
 model.compile(optimizer=optimizer, loss=loss)
 
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
-X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes)
-X_test, Y_test = preprocess_data(X_test, y_test, nb_classes=nb_classes)
+X_train = X_train[:train_size]
+y_train = y_train[:train_size]
+
+X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
+        binarize=True, noise=True, proportion=0.4)
+X_test, Y_test = preprocess_data(X_test, y_test, nb_classes=nb_classes,
+        binarize=True, noise=True, proportion=0.4)
 
 imshow_samples(X_train, y_train, X_test, y_test, 5)
 
