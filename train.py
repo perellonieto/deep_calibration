@@ -3,12 +3,7 @@ from os import path
 from scripts.create_dataset import binaryze_dataset, add_salt_and_pepper
 import matplotlib.pyplot as plt
 import numpy as np
-plt.ion()
-plt.rcParams['image.cmap'] = 'gray'
-plt.rcParams['figure.figsize'] = (6,4)
-
-
-np.random.seed(1234)
+from sklearn.isotonic import IsotonicRegression
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Flatten
@@ -20,6 +15,12 @@ from keras.optimizers import SGD, Adadelta, Adagrad, Adamax, RMSprop
 from keras.utils import np_utils
 from keras.datasets import mnist
 
+plt.ion()
+plt.rcParams['image.cmap'] = 'gray'
+plt.rcParams['figure.figsize'] = (6,4)
+
+np.random.seed(1234)
+
 PATH_SAVE='datasets/mnist/'
 
 #shape='spirals'
@@ -28,7 +29,7 @@ PATH_SAVE='datasets/mnist/'
 optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-train_size=50
+train_size=50000
 num_epochs=30
 batch_size=100
 nb_classes=2
@@ -87,13 +88,13 @@ def reliability_diagram(prob, Y, label=''):
     plt.plot(hist_pos[1][:-1]+0.05, np.true_divide(hist_pos[0],hist_tot[0]+1),
              'x-', linewidth=2.0, label=label)
 
-def plot_reliability_diagram(prob_train, Y_train, prob_test, Y_test, epoch,
+def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
                              save=True):
     fig = plt.figure('reliability_diagram')
     plt.clf()
     plt.title('Reliability diagram')
     reliability_diagram(prob_train, Y_train, label='train')
-    reliability_diagram(prob_test, Y_test, label='test')
+    reliability_diagram(prob_val, Y_val, label='val')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
@@ -119,9 +120,9 @@ def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
         Y = np_utils.to_categorical(y,nb_classes)
     return X,Y
 
-def imshow_samples(X_train, y_train, X_test, y_test, num_samples=4, save=True):
+def imshow_samples(X_train, y_train, X_val, y_val, num_samples=4, save=True):
     fig = plt.figure('samples')
-    for j, (data_x, data_y) in enumerate([(X_train, y_train), (X_test, y_test)]):
+    for j, (data_x, data_y) in enumerate([(X_train, y_train), (X_val, y_val)]):
         for i in range(num_samples):
             plt.subplot(2,num_samples,(j*num_samples+i)+1)
             plt.imshow(np.reshape(data_x[i], (28,28)))
@@ -130,23 +131,23 @@ def imshow_samples(X_train, y_train, X_test, y_test, num_samples=4, save=True):
     if save:
         plt.savefig('samples.svg')
 
-def plot_accuracy(accuracy_train, accuracy_test, epoch, save=True):
+def plot_accuracy(accuracy_train, accuracy_val, epoch, save=True):
     fig = plt.figure('accuracy')
     plt.clf()
     plt.title("Accuracy")
     plt.plot(range(0,epoch), accuracy_train[:epoch], label='train')
-    plt.plot(range(0,epoch), accuracy_test[:epoch], label='test')
+    plt.plot(range(0,epoch), accuracy_val[:epoch], label='val')
     plt.legend(loc='lower right')
     plt.show()
     if save:
         plt.savefig('accuracy_{:03}.svg'.format(epoch))
 
-def plot_error(error_train, error_test, epoch, loss, save=True):
+def plot_error(error_train, error_val, epoch, loss, save=True):
     fig = plt.figure('error')
     plt.clf()
     plt.title(loss)
     plt.plot(range(0,epoch), error_train[:epoch], label='train')
-    plt.plot(range(0,epoch), error_test[:epoch], label='test')
+    plt.plot(range(0,epoch), error_val[:epoch], label='val')
     plt.legend()
     plt.ylabel(loss)
     plt.xlabel('epoch')
@@ -173,47 +174,68 @@ else:
 
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
+X_val = X_train[train_size:]
+y_val = y_train[train_size:]
 X_train = X_train[:train_size]
 y_train = y_train[:train_size]
 
-X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes)
-#        binarize=True, noise=True, proportion=0.4)
-X_test, Y_test = preprocess_data(X_test, y_test, nb_classes=nb_classes)
-#        binarize=True, noise=True, proportion=0.4)
+X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
+        binarize=True, noise=True, proportion=0.25)
+X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
+        binarize=True, noise=True, proportion=0.25)
 
-imshow_samples(X_train, y_train, X_test, y_test, 5)
+imshow_samples(X_train, y_train, X_val, y_val, 5)
 
 error_train  = np.zeros(num_epochs+1)
-error_test = np.zeros(num_epochs+1)
+error_val = np.zeros(num_epochs+1)
 accuracy_train = np.zeros(num_epochs+1)
-accuracy_test = np.zeros(num_epochs+1)
+accuracy_val = np.zeros(num_epochs+1)
 score = model.evaluate(X_train, Y_train, batch_size=batch_size, show_accuracy=True)
 error_train[0] = score[0]
 accuracy_train[0] = score[1]
-score = model.evaluate(X_test, Y_test, batch_size=batch_size, show_accuracy=True)
-error_test[0] = score[0]
-accuracy_test[0] = score[1]
+score = model.evaluate(X_val, Y_val, batch_size=batch_size, show_accuracy=True)
+error_val[0] = score[0]
+accuracy_val[0] = score[1]
+
+ir = IsotonicRegression(out_of_bounds='clip')
+prob_train = model.predict(X_train).flatten()
+prob_ir = ir.fit_transform(prob_train, Y_train)
+Y_ir = Y_train + prob_ir
+
 for epoch in range(1,num_epochs+1):
-    hist = model.fit(X_train, Y_train, nb_epoch=1, batch_size=batch_size,
+    hist = model.fit(X_train, Y_ir, nb_epoch=1, batch_size=batch_size,
                         show_accuracy=True)
 
+    prob_train_ir  = ir.fit_transform(prob_train.flatten(), Y_train)
+    prob_val_ir  = ir.predict(prob_val.flatten())
+    Y_ir = Y_train + prob_train_ir
+
     error_train[epoch] = hist.history['loss'][0]
-    accuracy_train[epoch] = hist.history['acc'][0]
 
-    score_test = model.evaluate(X_test, Y_test, batch_size=batch_size, show_accuracy=True)
-    error_test[epoch] = score_test[0]
-    accuracy_test[epoch] = score_test[1]
-    print("EPOCH {}, train error = {}, test error = {}".format(epoch, error_train[epoch], error_test[epoch]))
+    score_val = model.evaluate(X_val, Y_val, batch_size=batch_size, show_accuracy=True)
+    error_val[epoch] = score_val[0]
+    print("EPOCH {}, train error = {}, val error = {}".format(epoch, error_train[epoch], error_val[epoch]))
 
 
-    prob_train = model.predict(X_train)
-    prob_test = model.predict(X_test)
-    print"Train acc = {}, Val acc = {}".format(compute_accuracy(prob_train,
-        Y_train), compute_accuracy(prob_test, Y_test))
+    prob_train = model.predict(X_train).flatten()
+    prob_val = model.predict(X_val).flatten()
+
+    #accuracy_train[epoch] = hist.history['acc'][0]
+    #accuracy_val[epoch] = score_val[1]
+    accuracy_train[epoch] = compute_accuracy(prob_train_ir, Y_train)
+    accuracy_val[epoch] = compute_accuracy(prob_val_ir, Y_val)
+    print"Train acc = {}, Val acc = {}".format(accuracy_train[epoch],
+                                               accuracy_val[epoch])
+
+    fig = plt.figure('IR')
+    plt.clf()
+    plt.scatter(prob_train, prob_train_ir)
+    plt.show()
+    plt.savefig('ir_{:03}.svg'.format(epoch))
 
     # PLOTS
-    plot_reliability_diagram(prob_train, Y_train, prob_test, Y_test, epoch)
-    plot_histogram_scores(prob_train, epoch)
-    plot_accuracy(accuracy_train, accuracy_test, epoch)
-    plot_error(error_train, error_test, epoch, loss)
+    plot_reliability_diagram(prob_train_ir, Y_train, prob_val_ir, Y_val, epoch)
+    plot_histogram_scores(prob_train_ir, epoch)
+    plot_accuracy(accuracy_train, accuracy_val, epoch)
+    plot_error(error_train, error_val, epoch, loss)
     plt.pause(0.1)
