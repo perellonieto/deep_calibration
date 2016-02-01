@@ -40,6 +40,13 @@ if nb_classes == 2:
 else:
     loss='categorical_crossentropy'
 
+def compute_loss(prob, Y, loss='mse'):
+    if loss == 'mse':
+        error = np.mean(np.square(prob-Y))
+    elif loss == 'binary_crossentropy':
+        error = -1
+    return error
+
 def create_cnn():
     model = Sequential()
     model.add(Convolution2D(nb_filter=32, nb_row=2, nb_col=2, border_mode='valid',
@@ -66,7 +73,7 @@ def create_cnn():
 
     return model
 
-def create_mlp(num_out=10):
+def create_mlp(num_out=10, activation='sigmoid'):
     model = Sequential()
     model.add(Dense(512, input_shape=(784,)))
     model.add(Activation('relu'))
@@ -75,10 +82,7 @@ def create_mlp(num_out=10):
     model.add(Activation('relu'))
     model.add(Dropout(0.2))
     model.add(Dense(num_out))
-    if num_out == 1:
-        model.add(Activation('sigmoid'))
-    else:
-        model.add(Activation('softmax'))
+    model.add(Activation(activation))
     return model
 
 def reliability_diagram(prob, Y, label=''):
@@ -163,12 +167,12 @@ def plot_histogram_scores(scores, epoch, save=True):
     plt.show()
     if save:
         plt.savefig('hist_scor_{:03}.svg'.format(epoch))
-
+ 
 if nb_classes == 2:
-    model = create_mlp(num_out=1)
+    model = create_mlp(num_out=1, activation='tanh')
     model.compile(optimizer=optimizer, loss=loss, class_mode='binary')
 else:
-    model = create_mlp(num_out=nb_classes)
+    model = create_mlp(num_out=nb_classes, activation='softmax')
     model.compile(optimizer=optimizer, loss=loss)
 #plot(model, to_file='model.png')
 
@@ -184,44 +188,44 @@ X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
 X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
         binarize=True, noise=True, proportion=0.25)
 
+Y_train_neg = np.copy(Y_train)
+Y_train_neg[Y_train_neg==0] = -1
+Y_val_neg = np.copy(Y_val)
+Y_val_neg[Y_val_neg==0] = -1
+
 imshow_samples(X_train, y_train, X_val, y_val, 5)
 
 error_train  = np.zeros(num_epochs+1)
 error_val = np.zeros(num_epochs+1)
 accuracy_train = np.zeros(num_epochs+1)
 accuracy_val = np.zeros(num_epochs+1)
-score = model.evaluate(X_train, Y_train, batch_size=batch_size, show_accuracy=True)
+score = model.evaluate(X_train, Y_train_neg, batch_size=batch_size, show_accuracy=True)
 error_train[0] = score[0]
 accuracy_train[0] = score[1]
-score = model.evaluate(X_val, Y_val, batch_size=batch_size, show_accuracy=True)
+score = model.evaluate(X_val, Y_val_neg, batch_size=batch_size, show_accuracy=True)
 error_val[0] = score[0]
 accuracy_val[0] = score[1]
 
 ir = IsotonicRegression(out_of_bounds='clip')
 prob_train = model.predict(X_train).flatten()
 prob_ir = ir.fit_transform(prob_train, Y_train)
-Y_ir = Y_train + prob_ir
+Y_ir = Y_train_neg + prob_ir
 
 for epoch in range(1,num_epochs+1):
     hist = model.fit(X_train, Y_ir, nb_epoch=1, batch_size=batch_size,
                         show_accuracy=True)
 
-    prob_train_ir  = ir.fit_transform(prob_train.flatten(), Y_train)
-    prob_val_ir  = ir.predict(prob_val.flatten())
-    Y_ir = Y_train + prob_train_ir
-
-    error_train[epoch] = hist.history['loss'][0]
-
-    score_val = model.evaluate(X_val, Y_val, batch_size=batch_size, show_accuracy=True)
-    error_val[epoch] = score_val[0]
-    print("EPOCH {}, train error = {}, val error = {}".format(epoch, error_train[epoch], error_val[epoch]))
-
-
     prob_train = model.predict(X_train).flatten()
     prob_val = model.predict(X_val).flatten()
 
-    #accuracy_train[epoch] = hist.history['acc'][0]
-    #accuracy_val[epoch] = score_val[1]
+    prob_train_ir  = ir.fit_transform(prob_train.flatten(), Y_train)
+    prob_val_ir  = ir.predict(prob_val.flatten())
+    Y_ir = Y_train_neg + prob_train_ir
+
+    error_train[epoch] = compute_loss(prob_train_ir, Y_train, loss)
+    error_val[epoch] = compute_loss(prob_val_ir, Y_val, loss)
+    print("EPOCH {}, train error = {}, val error = {}".format(epoch, error_train[epoch], error_val[epoch]))
+
     accuracy_train[epoch] = compute_accuracy(prob_train_ir, Y_train)
     accuracy_val[epoch] = compute_accuracy(prob_val_ir, Y_val)
     print"Train acc = {}, Val acc = {}".format(accuracy_train[epoch],
