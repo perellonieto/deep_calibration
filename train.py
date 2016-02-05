@@ -34,8 +34,8 @@ add_noise=True
 
 #shape='spirals'
 #optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
-#optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
-optimizer = RMSprop()
+optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
+#optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
@@ -43,7 +43,8 @@ num_epochs=500
 batch_size=10000
 nb_classes=2
 score_lin=np.linspace(0,1,100)
-minibatch_method='lineal'
+minibatch_method='lineal' # 'random', 'lineal'
+output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
 
 if nb_classes == 2:
     loss='binary_crossentropy'
@@ -246,20 +247,25 @@ ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
                         y_min=0.000001, y_max=0.9999999)
 print('Model predict training scores')
 score_train = model.predict(X_train).flatten()
-#   b. Calibrate the scores
-print('Learning Isotonic Regression from TRAINING set')
-ir.fit(score_train, Y_train)
-
-# 5. Evaluate the performance with the calibrated probabilities
-#   a. Evaluation on training set
-prob_train = ir.predict(score_train)
+if output_activation == 'isotonic_regression':
+    #   b. Calibrate the scores
+    print('Learning Isotonic Regression from TRAINING set')
+    ir.fit(score_train, Y_train)
+    # 5. Evaluate the performance with the calibrated probabilities
+    #   a. Evaluation on training set
+    prob_train = ir.predict(score_train)
+else:
+    prob_train = score_train
 error_train[0] = compute_loss(prob_train, Y_train, loss)
 accuracy_train[0] = compute_accuracy(prob_train, Y_train)
 #   b. Evaluation on validation set
 print('Model predict validation scores')
 score_val = model.predict(X_val).flatten()
-print('IR predict validation probabilities')
-prob_val  = ir.predict(score_val.flatten())
+if output_activation == 'isotonic_regression':
+    print('IR predict validation probabilities')
+    prob_val  = ir.predict(score_val.flatten())
+else:
+    prob_val = score_val
 error_val[0] = compute_loss(prob_val, Y_val, loss)
 accuracy_val[0] = compute_accuracy(prob_val, Y_val)
 
@@ -283,16 +289,20 @@ for epoch in range(1,num_epochs+1):
     #   a. Predict the scores using the network
     print('\tPREDICTING TRAINING')
     score_train_mb = model.predict(X_train_mb).flatten()
-    #   b. Predict the probabilities using IR
-    print('\tPREDICTING TRAINING')
-    prob_train_mb = ir.predict(score_train_mb.flatten())
-    #   c. Compute the gradients of IR
-    g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
-    #   c. Compute new values for the labels
-    Y_train_mb_new = prob_train_mb + \
-                     np.divide(np.multiply(prob_train_mb-Y_train_mb,
-                                           g_prob_train_mb),
-                               np.multiply(prob_train_mb,1-prob_train_mb))
+    if output_activation == 'isotonic_regression':
+        #   b. Predict the probabilities using IR
+        print('\tPREDICTING TRAINING')
+        prob_train_mb = ir.predict(score_train_mb.flatten())
+        #   c. Compute the gradients of IR
+        g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
+        #   c. Compute new values for the labels
+        Y_train_mb_new = prob_train_mb + \
+                         np.divide(np.multiply(prob_train_mb-Y_train_mb,
+                                               g_prob_train_mb),
+                                   np.multiply(prob_train_mb,1-prob_train_mb))
+    else:
+        prob_train_mb = score_train_mb
+        Y_train_mb_new = Y_train_mb
 
     # 3. Train the network on this minibatch
     print('\tTRAINING MODEL')
@@ -303,20 +313,29 @@ for epoch in range(1,num_epochs+1):
     #   a. Get the new scores from the model
     print('\tModel predict training scores')
     score_train = model.predict(X_train).flatten()
-    #   b. Calibrate the scores
-    print('\tLearning Isotonic Regression from TRAINING set')
-    ir.fit(score_train, Y_train)
 
-    # 5. Evaluate the performance with the calibrated probabilities
-    #   a. Evaluation on TRAINING set
-    prob_train = ir.predict(score_train)
+    if output_activation == 'isotonic_regression':
+        #   b. Calibrate the scores
+        print('\tLearning Isotonic Regression from TRAINING set')
+        ir.fit(score_train, Y_train)
+
+        # 5. Evaluate the performance with the calibrated probabilities
+        #   a. Evaluation on TRAINING set
+        prob_train = ir.predict(score_train)
+    else:
+        prob_train = score_train
+
     error_train[epoch] = compute_loss(prob_train, Y_train, loss)
     accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
     #   b. Evaluation on VALIDATION set
     print('\tModel predict validation scores')
     score_val = model.predict(X_val).flatten()
-    print('\tIR predict validation probabilities')
-    prob_val  = ir.predict(score_val.flatten())
+    if output_activation == 'isotonic_regression':
+        print('\tIR predict validation probabilities')
+        prob_val  = ir.predict(score_val.flatten())
+    else:
+        prob_val = score_val
+
     error_val[epoch] = compute_loss(prob_val, Y_val, loss)
     accuracy_val[epoch] = compute_accuracy(prob_val, Y_val)
 
@@ -328,9 +347,12 @@ for epoch in range(1,num_epochs+1):
 
     # PLOTS
     print('\tUpdating all plots')
-    prob_lin = ir.predict(score_lin)
-    plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
-                             score_lin=score_lin, prob_lin=prob_lin)
+    if output_activation == 'isotonic_regression':
+        prob_lin = ir.predict(score_lin)
+        plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
+                                 score_lin=score_lin, prob_lin=prob_lin)
+    else:
+        plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch)
     plot_histogram_scores(prob_train, epoch)
     plot_accuracy(accuracy_train, accuracy_val, epoch)
     plot_error(error_train, error_val, epoch, loss)
