@@ -10,7 +10,12 @@ from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.regularizers import l2, activity_l2
 from keras.optimizers import SGD, Adadelta, Adagrad, Adamax, RMSprop
-#from keras.utils.visualize_util import plot
+
+try:
+    from keras.utils.visualize_util import plot
+    keras_plot_available = True
+except ImportError:
+    keras_plot_available = False
 
 from keras.utils import np_utils
 from keras.datasets import mnist
@@ -22,6 +27,8 @@ plt.rcParams['figure.figsize'] = (6,4)
 np.random.seed(1234)
 
 PATH_SAVE='datasets/mnist/'
+binarize=True
+add_noise=True
 
 #shape='spirals'
 #optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
@@ -30,14 +37,13 @@ optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
-num_epochs=30
-batch_size=100
+num_epochs=500
+batch_size=1000
 nb_classes=2
 prob_lin=np.linspace(0,1,100)
 
 if nb_classes == 2:
     loss='binary_crossentropy'
-#    loss='mse'
 else:
     loss='categorical_crossentropy'
 
@@ -45,6 +51,10 @@ def compute_loss(prob, Y, loss='mse'):
     if loss == 'mse':
         error = np.mean(np.square(prob-Y))
     elif loss == 'binary_crossentropy':
+        error = np.mean(-np.multiply(Y,np.log(prob)) - np.multiply((1-Y),
+                np.log(1-prob)))
+    else:
+        print('compute_loss loss = {} not implemented returning -1'.format(loss))
         error = -1
     return error
 
@@ -87,6 +97,7 @@ def create_mlp(num_out=10, activation='sigmoid'):
     return model
 
 def reliability_diagram(prob, Y, label=''):
+    # TODO modify the centers of the bins by their centroids
     hist_tot = np.histogram(prob, bins=np.linspace(0,1,11))
     hist_pos = np.histogram(prob[Y == 1], bins=np.linspace(0,1,11))
     plt.plot([0,1],[0,1], 'r--')
@@ -98,8 +109,8 @@ def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
     fig = plt.figure('reliability_diagram')
     plt.clf()
     plt.title('Reliability diagram')
-    reliability_diagram(prob_train, Y_train, label='train.')
-    reliability_diagram(prob_val, Y_val, label='val.')
+    reliability_diagram(prob_train, Y_train, 'x-', label='train.')
+    reliability_diagram(prob_val, Y_val, '+-', label='val.')
     if prob_lin != None and prob_cal != None:
         plt.plot(prob_lin, prob_cal, label='cal.')
     plt.legend(loc='lower right')
@@ -142,8 +153,8 @@ def plot_accuracy(accuracy_train, accuracy_val, epoch, save=True):
     fig = plt.figure('accuracy')
     plt.clf()
     plt.title("Accuracy")
-    plt.plot(range(0,epoch), accuracy_train[:epoch], label='train')
-    plt.plot(range(0,epoch), accuracy_val[:epoch], label='val')
+    plt.plot(range(0,epoch), accuracy_train[:epoch], 'x-', label='train')
+    plt.plot(range(0,epoch), accuracy_val[:epoch], '+-', label='val')
     plt.legend(loc='lower right')
     plt.show()
     if save:
@@ -153,8 +164,8 @@ def plot_error(error_train, error_val, epoch, loss, save=True):
     fig = plt.figure('error')
     plt.clf()
     plt.title(loss)
-    plt.plot(range(0,epoch), error_train[:epoch], label='train')
-    plt.plot(range(0,epoch), error_val[:epoch], label='val')
+    plt.plot(range(0,epoch), error_train[:epoch], 'x-', label='train')
+    plt.plot(range(0,epoch), error_val[:epoch], '+-', label='val')
     plt.legend()
     plt.ylabel(loss)
     plt.xlabel('epoch')
@@ -172,10 +183,11 @@ def plot_histogram_scores(scores, epoch, save=True):
         plt.savefig('hist_scor_{:03}.svg'.format(epoch))
 
 def isotonic_gradients(ir, scores, delta=0.01):
-    # FIXME consider the extremes
-    lower_value = ir.predict(scores-delta)
-    upper_value = ir.predict(scores+delta)
-    return (upper_value-lower_value)/delta*2
+#    lower_value = ir.predict(np.clip(scores-delta, a_min=0, a_max=1))
+#    upper_value = ir.predict(np.clip(scores+delta, a_min=0, a_max=1))
+#    # FIXME the denominator is wrong on clipped samples
+#    return (upper_value-lower_value)/delta*2
+    return -np.ones(np.shape(scores))
 
 if nb_classes == 2:
     model = create_mlp(num_out=1, activation='sigmoid')
@@ -184,68 +196,127 @@ if nb_classes == 2:
 else:
     model = create_mlp(num_out=nb_classes, activation='softmax')
     model.compile(optimizer=optimizer, loss=loss)
-#plot(model, to_file='model.png')
 
+if keras_plot_available:
+    plot(model, to_file='model.png')
+
+print('Loading MNIST dataset')
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
-X_val = X_train[train_size:]
-y_val = y_train[train_size:]
-X_train = X_train[:train_size]
-y_train = y_train[:train_size]
+print('Splitting data into training and validation')
+X_val = np.copy(X_train[train_size:])
+y_val = np.copy(y_train[train_size:])
+X_train = np.copy(X_train[:train_size])
+y_train = np.copy(y_train[:train_size])
 
+print('Preprocessing data: classes = {}, binarize = {}, add noise = {}'.format(
+       nb_classes, binarize, add_noise))
 X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
-        binarize=True, noise=True, proportion=0.25)
+        binarize=binarize, noise=add_noise, proportion=0.25)
 X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
-        binarize=True, noise=True, proportion=0.25)
+        binarize=binarize, noise=add_noise, proportion=0.25)
 
+print('Showing data samples')
 imshow_samples(X_train, y_train, X_val, y_val, 5)
 
+print('Creating error and accuracy vectors')
 error_train  = np.zeros(num_epochs+1)
 error_val = np.zeros(num_epochs+1)
 accuracy_train = np.zeros(num_epochs+1)
 accuracy_val = np.zeros(num_epochs+1)
-score = model.evaluate(X_train, Y_train, batch_size=batch_size, show_accuracy=True)
-error_train[0] = score[0]
-accuracy_train[0] = score[1]
-score = model.evaluate(X_val, Y_val, batch_size=batch_size, show_accuracy=True)
-error_val[0] = score[0]
-accuracy_val[0] = score[1]
 
-ir = IsotonicRegression(out_of_bounds='clip')
-prob_train = model.predict(X_train).flatten()
-prob_ir = ir.fit_transform(prob_train, Y_train)
-prob_ir_g = isotonic_gradients(ir, prob_train)
-prob_ir_neg = 1-prob_ir
-Y_ir = prob_train +((prob_ir - Y_train) * prob_ir_g)/(prob_ir*prob_ir_neg)
+# This are the same points 4 and 5 as in the training loop
+# 4. Calibrate the network with isotonic regression in the full training
+#   a. Get the new scores from the model
+ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
+                        y_min=0.000001, y_max=0.9999999)
+print('\tModel predict training scores')
+score_train = model.predict(X_train).flatten()
+#   b. Calibrate the scores
+print('\tIR fit training scores')
+ir.fit(score_train, Y_train)
 
+# 5. Evaluate the performance with the calibrated probabilities
+#   a. Evaluation on training set
+prob_train = ir.predict(score_train)
+error_train[0] = compute_loss(prob_train, Y_train, loss)
+accuracy_train[0] = compute_accuracy(prob_train, Y_train)
+#   b. Evaluation on validation set
+print('\tModel predict validation scores')
+score_val = model.predict(X_val).flatten()
+print('\tIR predict validation probabilities')
+prob_val  = ir.predict(score_val.flatten())
+error_val[0] = compute_loss(prob_val, Y_val, loss)
+accuracy_val[0] = compute_accuracy(prob_val, Y_val)
+
+# SHOW PERFORMANCE ON MINIBATCH
+print(("\ttrain error = {}, val error = {}\n"
+       "\ttrain acc = {}, val acc = {}").format(
+                    error_train[0], error_val[0],
+                    accuracy_train[0], accuracy_val[0]))
+
+# FIXME change epoch by minibatch
 for epoch in range(1,num_epochs+1):
-    hist = model.fit(X_train, Y_ir, nb_epoch=1, batch_size=batch_size,
-                        show_accuracy=True)
+    # Given the Calibrated probabilities
+    # 1. Choose the next minibatch
+    print('EPOCH {}'.format(epoch))
+    minibatch_id = np.random.choice(train_size, batch_size)
+    X_train_mb = np.copy(X_train[minibatch_id])
+    Y_train_mb = np.copy(Y_train[minibatch_id])
 
-    prob_train = model.predict(X_train).flatten()
-    prob_val = model.predict(X_val).flatten()
+    # 2. Compute the new values for the labels on this minibatch
+    #   a. Predict the scores using the network
+    print('\tPREDICTING TRAINING')
+    score_train_mb = model.predict(X_train_mb).flatten()
+    #   b. Predict the probabilities using IR
+    print('\tPREDICTING TRAINING')
+    prob_train_mb = ir.predict(score_train_mb.flatten())
+    #   c. Compute the gradients of IR
+    g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
+    #   c. Compute new values for the labels
+    Y_train_mb_new = prob_train_mb + \
+                     np.divide(np.multiply(prob_train_mb-Y_train_mb,
+                                           g_prob_train_mb),
+                               np.multiply(prob_train_mb,1-prob_train_mb))
 
-    prob_train_ir  = ir.fit(prob_train.flatten(), Y_train)
-    prob_train_ir  = ir.predict(prob_train.flatten())
-    prob_val_ir  = ir.predict(prob_val.flatten())
-    prob_ir_g = isotonic_gradients(ir, prob_train)
-    prob_ir_neg = 1-prob_ir
-    Y_ir = prob_train +((prob_ir - Y_train) * prob_ir_g)/(prob_ir*prob_ir_neg)
+    # 3. Train the network on this minibatch
+    print('\tTRAINING MODEL')
+    model.fit(X_train_mb, Y_train_mb_new, nb_epoch=1, batch_size=batch_size,
+              show_accuracy=True)
 
-    error_train[epoch] = compute_loss(prob_train_ir, Y_train, loss)
-    error_val[epoch] = compute_loss(prob_val_ir, Y_val, loss)
-    print("EPOCH {}, train error = {}, val error = {}".format(epoch, error_train[epoch], error_val[epoch]))
+    # 4. Calibrate the network with isotonic regression in the full training
+    #   a. Get the new scores from the model
+    print('\tModel predict training scores')
+    score_train = model.predict(X_train).flatten()
+    #   b. Calibrate the scores
+    print('\tIR fit training scores')
+    ir.fit(score_train, Y_train)
 
-    accuracy_train[epoch] = compute_accuracy(prob_train_ir, Y_train)
-    accuracy_val[epoch] = compute_accuracy(prob_val_ir, Y_val)
-    print"Train acc = {}, Val acc = {}".format(accuracy_train[epoch],
-                                               accuracy_val[epoch])
+    # 5. Evaluate the performance with the calibrated probabilities
+    #   a. Evaluation on training set
+    prob_train = ir.predict(score_train)
+    error_train[epoch] = compute_loss(prob_train, Y_train, loss)
+    accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
+    #   b. Evaluation on validation set
+    print('\tModel predict validation scores')
+    score_val = model.predict(X_val).flatten()
+    print('\tIR predict validation probabilities')
+    prob_val  = ir.predict(score_val.flatten())
+    error_val[epoch] = compute_loss(prob_val, Y_val, loss)
+    accuracy_val[epoch] = compute_accuracy(prob_val, Y_val)
+
+    # SHOW PERFORMANCE ON MINIBATCH
+    print(("\ttrain error = {}, val error = {}\n"
+           "\ttrain acc = {}, val acc = {}").format(
+                        error_train[epoch], error_val[epoch],
+                        accuracy_train[epoch], accuracy_val[epoch]))
 
     # PLOTS
+    print('\tUpdating all plots')
     prob_cal = ir.predict(prob_lin)
-    plot_reliability_diagram(prob_train_ir, Y_train, prob_val_ir, Y_val, epoch,
+    plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
                              prob_lin=prob_lin, prob_cal=prob_cal)
-    plot_histogram_scores(prob_train_ir, epoch)
+    plot_histogram_scores(prob_train, epoch)
     plot_accuracy(accuracy_train, accuracy_val, epoch)
     plot_error(error_train, error_val, epoch, loss)
     plt.pause(0.1)
