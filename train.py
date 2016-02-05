@@ -16,6 +16,8 @@ try:
     keras_plot_available = True
 except ImportError:
     keras_plot_available = False
+except RuntimeError:
+    keras_plot_available = False
 
 from keras.utils import np_utils
 from keras.datasets import mnist
@@ -38,14 +40,24 @@ optimizer = RMSprop()
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=500
-batch_size=1000
+batch_size=10000
 nb_classes=2
 score_lin=np.linspace(0,1,100)
+minibatch_method='lineal'
 
 if nb_classes == 2:
     loss='binary_crossentropy'
 else:
     loss='categorical_crossentropy'
+
+def get_minibatch_id(total_size, batch_size, method='random', iteration=0):
+    if method == 'random':
+        minibatch_id = np.random.choice(total_size, batch_size)
+    elif 'lineal':
+        minibatch_id = np.mod(range(batch_size*iteration,
+                                    batch_size*(iteration+1)),
+                              total_size)
+    return minibatch_id
 
 def compute_loss(prob, Y, loss='mse'):
     if loss == 'mse':
@@ -262,7 +274,8 @@ for epoch in range(1,num_epochs+1):
     # Given the Calibrated probabilities
     # 1. Choose the next minibatch
     print('EPOCH {}'.format(epoch))
-    minibatch_id = np.random.choice(train_size, batch_size)
+    minibatch_id = get_minibatch_id(train_size, batch_size,
+                                     method=minibatch_method, iteration=epoch)
     X_train_mb = np.copy(X_train[minibatch_id])
     Y_train_mb = np.copy(Y_train[minibatch_id])
 
@@ -321,4 +334,4 @@ for epoch in range(1,num_epochs+1):
     plot_histogram_scores(prob_train, epoch)
     plot_accuracy(accuracy_train, accuracy_val, epoch)
     plot_error(error_train, error_val, epoch, loss)
-    plt.pause(0.1)
+    plt.pause(0.0001)
