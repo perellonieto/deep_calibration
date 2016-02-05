@@ -40,7 +40,7 @@ train_size=50000
 num_epochs=500
 batch_size=1000
 nb_classes=2
-prob_lin=np.linspace(0,1,100)
+score_lin=np.linspace(0,1,100)
 
 if nb_classes == 2:
     loss='binary_crossentropy'
@@ -51,8 +51,8 @@ def compute_loss(prob, Y, loss='mse'):
     if loss == 'mse':
         error = np.mean(np.square(prob-Y))
     elif loss == 'binary_crossentropy':
-        error = np.mean(-np.multiply(Y,np.log(prob)) - np.multiply((1-Y),
-                np.log(1-prob)))
+        error = np.mean(-np.multiply(Y,np.log2(prob)) - np.multiply((1-Y),
+                np.log2(1-prob)))
     else:
         print('compute_loss loss = {} not implemented returning -1'.format(loss))
         error = -1
@@ -96,23 +96,23 @@ def create_mlp(num_out=10, activation='sigmoid'):
     model.add(Activation(activation))
     return model
 
-def reliability_diagram(prob, Y, label=''):
+def reliability_diagram(prob, Y, marker='--', label=''):
     # TODO modify the centers of the bins by their centroids
     hist_tot = np.histogram(prob, bins=np.linspace(0,1,11))
     hist_pos = np.histogram(prob[Y == 1], bins=np.linspace(0,1,11))
     plt.plot([0,1],[0,1], 'r--')
     plt.plot(hist_pos[1][:-1]+0.05, np.true_divide(hist_pos[0],hist_tot[0]+1),
-             'x-', linewidth=2.0, label=label)
+             marker, linewidth=2.0, label=label)
 
 def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
-                             save=True, prob_lin=None, prob_cal=None):
+                             save=True, score_lin=None, prob_lin=None):
     fig = plt.figure('reliability_diagram')
     plt.clf()
     plt.title('Reliability diagram')
-    reliability_diagram(prob_train, Y_train, 'x-', label='train.')
-    reliability_diagram(prob_val, Y_val, '+-', label='val.')
-    if prob_lin != None and prob_cal != None:
-        plt.plot(prob_lin, prob_cal, label='cal.')
+    reliability_diagram(prob_train, Y_train, marker='x-', label='train.')
+    reliability_diagram(prob_val, Y_val, marker='+-', label='val.')
+    if score_lin != None and prob_lin != None:
+        plt.plot(score_lin, prob_lin, label='cal.')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
@@ -208,6 +208,8 @@ X_val = np.copy(X_train[train_size:])
 y_val = np.copy(y_train[train_size:])
 X_train = np.copy(X_train[:train_size])
 y_train = np.copy(y_train[:train_size])
+print('Training shape = {}, Validation shape = {}, Test shape = {}'.format(
+    X_train.shape, X_val.shape, X_test.shape))
 
 print('Preprocessing data: classes = {}, binarize = {}, add noise = {}'.format(
        nb_classes, binarize, add_noise))
@@ -230,10 +232,10 @@ accuracy_val = np.zeros(num_epochs+1)
 #   a. Get the new scores from the model
 ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
                         y_min=0.000001, y_max=0.9999999)
-print('\tModel predict training scores')
+print('Model predict training scores')
 score_train = model.predict(X_train).flatten()
 #   b. Calibrate the scores
-print('\tIR fit training scores')
+print('Learning Isotonic Regression from TRAINING set')
 ir.fit(score_train, Y_train)
 
 # 5. Evaluate the performance with the calibrated probabilities
@@ -242,16 +244,16 @@ prob_train = ir.predict(score_train)
 error_train[0] = compute_loss(prob_train, Y_train, loss)
 accuracy_train[0] = compute_accuracy(prob_train, Y_train)
 #   b. Evaluation on validation set
-print('\tModel predict validation scores')
+print('Model predict validation scores')
 score_val = model.predict(X_val).flatten()
-print('\tIR predict validation probabilities')
+print('IR predict validation probabilities')
 prob_val  = ir.predict(score_val.flatten())
 error_val[0] = compute_loss(prob_val, Y_val, loss)
 accuracy_val[0] = compute_accuracy(prob_val, Y_val)
 
-# SHOW PERFORMANCE ON MINIBATCH
-print(("\ttrain error = {}, val error = {}\n"
-       "\ttrain acc = {}, val acc = {}").format(
+# SHOW INITIAL PERFORMANCE
+print(("train error = {}, val error = {}\n"
+       "train acc = {}, val acc = {}").format(
                     error_train[0], error_val[0],
                     accuracy_train[0], accuracy_val[0]))
 
@@ -289,15 +291,15 @@ for epoch in range(1,num_epochs+1):
     print('\tModel predict training scores')
     score_train = model.predict(X_train).flatten()
     #   b. Calibrate the scores
-    print('\tIR fit training scores')
+    print('\tLearning Isotonic Regression from TRAINING set')
     ir.fit(score_train, Y_train)
 
     # 5. Evaluate the performance with the calibrated probabilities
-    #   a. Evaluation on training set
+    #   a. Evaluation on TRAINING set
     prob_train = ir.predict(score_train)
     error_train[epoch] = compute_loss(prob_train, Y_train, loss)
     accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
-    #   b. Evaluation on validation set
+    #   b. Evaluation on VALIDATION set
     print('\tModel predict validation scores')
     score_val = model.predict(X_val).flatten()
     print('\tIR predict validation probabilities')
@@ -313,9 +315,9 @@ for epoch in range(1,num_epochs+1):
 
     # PLOTS
     print('\tUpdating all plots')
-    prob_cal = ir.predict(prob_lin)
+    prob_lin = ir.predict(score_lin)
     plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
-                             prob_lin=prob_lin, prob_cal=prob_cal)
+                             score_lin=score_lin, prob_lin=prob_lin)
     plot_histogram_scores(prob_train, epoch)
     plot_accuracy(accuracy_train, accuracy_val, epoch)
     plot_error(error_train, error_val, epoch, loss)
