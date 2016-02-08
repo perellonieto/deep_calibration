@@ -22,9 +22,11 @@ except RuntimeError:
 from keras.utils import np_utils
 from keras.datasets import mnist
 
+from diary import Diary
+
 plt.ion()
 plt.rcParams['image.cmap'] = 'gray'
-plt.rcParams['figure.figsize'] = (6,4)
+plt.rcParams['figure.figsize'] = (5,3.5)
 
 np.random.seed(1234)
 
@@ -34,14 +36,15 @@ add_noise=True
 
 #shape='spirals'
 #optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
-optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
-#optimizer = RMSprop()
+#optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
+optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=500
 batch_size=10000
 nb_classes=2
+noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
 minibatch_method='lineal' # 'random', 'lineal'
 output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
@@ -50,6 +53,16 @@ if nb_classes == 2:
     loss='binary_crossentropy'
 else:
     loss='categorical_crossentropy'
+
+diary = Diary(name='experiment', path='results')
+diary.add_notebook('hyperparameters')
+diary.add_entry('hyperparameters', ['train_size', train_size,
+    'epoch', num_epochs, 'batch_size', batch_size, 'classes', nb_classes,
+    'minibatch_method', minibatch_method,
+    'output_activation', output_activation, 'loss', loss,
+    'optimizer', optimizer.get_config()['name'], 'noise', noise_proportion])
+diary.add_notebook('training')
+diary.add_notebook('validation')
 
 def get_minibatch_id(total_size, batch_size, method='random', iteration=0):
     if method == 'random':
@@ -118,7 +131,7 @@ def reliability_diagram(prob, Y, marker='--', label=''):
              marker, linewidth=2.0, label=label)
 
 def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
-                             save=True, score_lin=None, prob_lin=None):
+                             score_lin=None, prob_lin=None):
     fig = plt.figure('reliability_diagram')
     plt.clf()
     plt.title('Reliability diagram')
@@ -128,9 +141,7 @@ def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
         plt.plot(score_lin, prob_lin, label='cal.')
     plt.legend(loc='lower right')
     plt.grid(True)
-    plt.show()
-    if save:
-        plt.savefig('rel_dia_{:03}.svg'.format(epoch))
+    plt.draw()
 
 def compute_accuracy(scores, labels, threshold=0.5):
     return np.mean((scores >= threshold).flatten() == labels.flatten())
@@ -151,29 +162,25 @@ def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
         Y = np_utils.to_categorical(y,nb_classes)
     return X,Y
 
-def imshow_samples(X_train, y_train, X_val, y_val, num_samples=4, save=True):
+def imshow_samples(X_train, y_train, X_val, y_val, num_samples=4):
     fig = plt.figure('samples')
     for j, (data_x, data_y) in enumerate([(X_train, y_train), (X_val, y_val)]):
         for i in range(num_samples):
             plt.subplot(2,num_samples,(j*num_samples+i)+1)
             plt.imshow(np.reshape(data_x[i], (28,28)))
             plt.title(data_y[i])
-    plt.show()
-    if save:
-        plt.savefig('samples.svg')
+    plt.draw()
 
-def plot_accuracy(accuracy_train, accuracy_val, epoch, save=True):
+def plot_accuracy(accuracy_train, accuracy_val, epoch):
     fig = plt.figure('accuracy')
     plt.clf()
     plt.title("Accuracy")
     plt.plot(range(0,epoch), accuracy_train[:epoch], 'x-', label='train')
     plt.plot(range(0,epoch), accuracy_val[:epoch], '+-', label='val')
     plt.legend(loc='lower right')
-    plt.show()
-    if save:
-        plt.savefig('accuracy_{:03}.svg'.format(epoch))
+    plt.draw()
 
-def plot_error(error_train, error_val, epoch, loss, save=True):
+def plot_error(error_train, error_val, epoch, loss):
     fig = plt.figure('error')
     plt.clf()
     plt.title(loss)
@@ -182,18 +189,14 @@ def plot_error(error_train, error_val, epoch, loss, save=True):
     plt.legend()
     plt.ylabel(loss)
     plt.xlabel('epoch')
-    plt.show()
-    if save:
-        plt.savefig('{}_{:03}.svg'.format(loss, epoch))
+    plt.draw()
 
-def plot_histogram_scores(scores, epoch, save=True):
+def plot_histogram_scores(scores, epoch):
     fig = plt.figure('histogram_scores')
     plt.clf()
     plt.title('Histogram of scores (train)')
-    plt.hist(scores)
-    plt.show()
-    if save:
-        plt.savefig('hist_scor_{:03}.svg'.format(epoch))
+    plt.hist(scores, bins=np.linspace(0,1,11))
+    plt.draw()
 
 def isotonic_gradients(ir, scores, delta=0.01):
 #    lower_value = ir.predict(np.clip(scores-delta, a_min=0, a_max=1))
@@ -227,12 +230,13 @@ print('Training shape = {}, Validation shape = {}, Test shape = {}'.format(
 print('Preprocessing data: classes = {}, binarize = {}, add noise = {}'.format(
        nb_classes, binarize, add_noise))
 X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
-        binarize=binarize, noise=add_noise, proportion=0.25)
+        binarize=binarize, noise=add_noise, proportion=noise_proportion)
 X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
-        binarize=binarize, noise=add_noise, proportion=0.25)
+        binarize=binarize, noise=add_noise, proportion=noise_proportion)
 
 print('Showing data samples')
 imshow_samples(X_train, y_train, X_val, y_val, 5)
+diary.save_figure(plt, filename='samples', extension='svg')
 
 print('Creating error and accuracy vectors')
 error_train  = np.zeros(num_epochs+1)
@@ -274,6 +278,8 @@ print(("train error = {}, val error = {}\n"
        "train acc = {}, val acc = {}").format(
                     error_train[0], error_val[0],
                     accuracy_train[0], accuracy_val[0]))
+diary.add_entry('training', [error_train[0], accuracy_train[0]])
+diary.add_entry('validation', [error_val[0], accuracy_val[0]])
 
 # FIXME change epoch by minibatch
 for epoch in range(1,num_epochs+1):
@@ -344,6 +350,9 @@ for epoch in range(1,num_epochs+1):
            "\ttrain acc = {}, val acc = {}").format(
                         error_train[epoch], error_val[epoch],
                         accuracy_train[epoch], accuracy_val[epoch]))
+    # SAVE PERFORMANCE ON MINIBATCH
+    diary.add_entry('training', [error_train[epoch], accuracy_train[epoch]])
+    diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
 
     # PLOTS
     print('\tUpdating all plots')
@@ -353,7 +362,11 @@ for epoch in range(1,num_epochs+1):
                                  score_lin=score_lin, prob_lin=prob_lin)
     else:
         plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch)
+    diary.save_figure(plt, filename='reliability_diagram', extension='svg')
     plot_histogram_scores(prob_train, epoch)
+    diary.save_figure(plt, filename='histogram_scores', extension='svg')
     plot_accuracy(accuracy_train, accuracy_val, epoch)
+    diary.save_figure(plt, filename='accuracy', extension='svg')
     plot_error(error_train, error_val, epoch, loss)
+    diary.save_figure(plt, filename='error', extension='svg')
     plt.pause(0.0001)
