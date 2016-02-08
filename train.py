@@ -37,13 +37,13 @@ add_noise=True
 
 #shape='spirals'
 #optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
-#optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
-optimizer = RMSprop()
+optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
+#optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=30
-batch_size=50000
+batch_size=100
 inner_batch_size=100
 nb_classes=2
 noise_proportion=0.25
@@ -299,8 +299,8 @@ for epoch in range(1,num_epochs+1):
         minibatch_id = get_minibatch_id(train_size, batch_size,
                                          method=minibatch_method,
                                          iteration=iteration)
-        X_train_mb = np.copy(X_train[minibatch_id])
-        Y_train_mb = np.copy(Y_train[minibatch_id])
+        X_train_mb = X_train[minibatch_id]
+        Y_train_mb = Y_train[minibatch_id]
 
         # 2. Compute the new values for the labels on this minibatch
         #   a. Predict the scores using the network
@@ -318,7 +318,6 @@ for epoch in range(1,num_epochs+1):
                                                    g_prob_train_mb),
                                        np.multiply(prob_train_mb,1-prob_train_mb))
         else:
-            prob_train_mb = score_train_mb
             Y_train_mb_new = Y_train_mb
 
         # 3. Train the network on this minibatch
@@ -326,12 +325,11 @@ for epoch in range(1,num_epochs+1):
         model.fit(X_train_mb, Y_train_mb_new, nb_epoch=1,
                 batch_size=inner_batch_size, show_accuracy=True)
 
-        # 4. Calibrate the network with isotonic regression in the full training
-        #   a. Get the new scores from the model
-        print('\tModel predict training scores')
-        score_train = model.predict(X_train).flatten()
-
         if output_activation == 'isotonic_regression':
+            # 4. Calibrate the network with isotonic regression in the full training
+            #   a. Get the new scores from the model
+            print('\tModel predict training scores')
+            score_train = model.predict(X_train).flatten()
             #   b. Calibrate the scores
             print('\tLearning Isotonic Regression from TRAINING set')
             ir.fit(score_train, Y_train)
@@ -339,27 +337,25 @@ for epoch in range(1,num_epochs+1):
             # 5. Evaluate the performance with the calibrated probabilities
             #   a. Evaluation on TRAINING set
             prob_train = ir.predict(score_train)
-        else:
-            prob_train = score_train
 
-        partial_acc_train += compute_accuracy(prob_train, Y_train)
-        partial_err_train += compute_loss(prob_train, Y_train, loss)
-        #   b. Evaluation on VALIDATION set
-        print('\tModel predict validation scores')
-        score_val = model.predict(X_val).flatten()
-        if output_activation == 'isotonic_regression':
-            print('\tIR predict validation probabilities')
-            prob_val  = ir.predict(score_val.flatten())
-        else:
-            prob_val = score_val
+    print('\tModel predict training scores')
+    score_train = model.predict(X_train).flatten()
+    #   b. Evaluation on VALIDATION set
+    print('\tModel predict validation scores')
+    score_val = model.predict(X_val).flatten()
+    if output_activation == 'isotonic_regression':
+        print('\tIR predict validation probabilities')
+        prob_val  = ir.predict(score_val.flatten())
+        print('\tIR predict training probabilities')
+        prob_train  = ir.predict(score_train.flatten())
+    else:
+        prob_train = score_train
+        prob_val = score_val
 
-        partial_acc_val += compute_accuracy(prob_val, Y_val)
-        partial_err_val += compute_loss(prob_val, Y_val, loss)
-
-    error_train[epoch] = partial_err_train/num_minibatches
-    accuracy_train[epoch] = partial_acc_train/num_minibatches
-    error_val[epoch] = partial_err_val/num_minibatches
-    accuracy_val[epoch] = partial_acc_val/num_minibatches
+    error_train[epoch] = compute_loss(prob_train, Y_train, loss)
+    accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
+    error_val[epoch] = compute_loss(prob_val, Y_val, loss)
+    accuracy_val[epoch] = compute_accuracy(prob_val, Y_val)
     # SHOW PERFORMANCE ON MINIBATCH
     print(("\ttrain error = {}, val error = {}\n"
            "\ttrain acc = {}, val acc = {}").format(
