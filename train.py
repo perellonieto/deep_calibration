@@ -29,6 +29,7 @@ plt.rcParams['image.cmap'] = 'gray'
 plt.rcParams['figure.figsize'] = (5,3.5)
 
 np.random.seed(1234)
+_EPSILON=10e-8
 
 PATH_SAVE='datasets/mnist/'
 binarize=True
@@ -79,8 +80,9 @@ def compute_loss(prob, Y, loss='mse'):
     if loss == 'mse':
         error = np.mean(np.square(prob-Y))
     elif loss == 'binary_crossentropy':
-        error = np.mean(-np.multiply(Y,np.log2(prob)) - np.multiply((1-Y),
-                np.log2(1-prob)))
+        prob = prob.clip(_EPSILON, 1.0 - _EPSILON)
+        error = -np.mean(np.multiply(Y,np.log2(prob)) + np.multiply((1.0-Y),
+                np.log2(1.0 - prob)))
     else:
         print('compute_loss loss = {} not implemented returning -1'.format(loss))
         error = -1
