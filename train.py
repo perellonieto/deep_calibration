@@ -42,13 +42,13 @@ optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=30
-batch_size=10000
-inner_batch_size=1000
+batch_size=50000
+inner_batch_size=100
 nb_classes=2
 noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
 minibatch_method='lineal' # 'random', 'lineal'
-output_activation= 'isotonic_regression' # 'isotonic_regression' # sigmoid
+output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
 
 if nb_classes == 2:
     loss='binary_crossentropy'
@@ -82,13 +82,13 @@ def get_minibatch_id(total_size, batch_size, method='random', iteration=0):
 
 def compute_loss(prob, Y, loss='mse'):
     if loss == 'mse':
-        error = np.mean(np.square(prob-Y))
+        error = np.mean(np.square(prob - Y))
     elif loss == 'binary_crossentropy':
-        prob = prob.clip(_EPSILON, 1.0 - _EPSILON)
-        error = -np.mean(np.multiply(Y,np.log2(prob)) + np.multiply((1.0-Y),
-                np.log2(1.0 - prob)))
+        prob_clip = prob.clip(_EPSILON, 1.0 - _EPSILON)
+        error = -np.mean(np.multiply(Y, np.log(prob_clip)) +
+                         np.multiply((1.0 - Y), np.log(1.0 - prob_clip)))
     else:
-        print('compute_loss loss = {} not implemented returning -1'.format(loss))
+        print('compute_loss loss = {} not implemented (-1)'.format(loss))
         error = -1
     return error
 
@@ -152,23 +152,23 @@ def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
     plt.draw()
 
 def compute_accuracy(scores, labels, threshold=0.5):
-    return np.mean((scores > threshold).flatten() == labels.flatten())
+    return np.mean((scores >= threshold).flatten() == labels.flatten())
 
 def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
                     proportion=0.1):
-    X = X.reshape(-1, 784)
-    X = X.astype('float32')
-    X /= 255.0
-    print(X.shape[0], 'samples')
+    X_new = X.reshape(-1, 784)
+    X_new = X_new.astype('float32')
+    X_new /= 255.0
+    print(X_new.shape[0], 'samples')
     if binarize:
-        X = binaryze_dataset(X, threshold=0.5)
+        X_new = binaryze_dataset(X_new, threshold=0.5)
     if noise:
-        X = add_salt_and_pepper(X,proportion=proportion)
+        X_new = add_salt_and_pepper(X_new,proportion=proportion)
     if nb_classes == 2:
         Y = np.in1d(y,[0,2,4,6,8]).astype('float64')
     else:
         Y = np_utils.to_categorical(y,nb_classes)
-    return X,Y
+    return X_new,Y
 
 def imshow_samples(X_train, y_train, X_val, y_val, num_samples=4):
     fig = plt.figure('samples')
@@ -213,173 +213,175 @@ def isotonic_gradients(ir, scores, delta=0.01):
 #    return (upper_value-lower_value)/delta*2
     return -np.ones(np.shape(scores))
 
-if nb_classes == 2:
-    model = create_mlp(num_out=1, activation='sigmoid')
-    #model = create_mlp(num_out=1, activation='linear')
-    model.compile(optimizer=optimizer, loss=loss, class_mode='binary')
-else:
-    model = create_mlp(num_out=nb_classes, activation='softmax')
-    model.compile(optimizer=optimizer, loss=loss)
+def main():
+    if nb_classes == 2:
+        model = create_mlp(num_out=1, activation='sigmoid')
+        model.compile(optimizer=optimizer, loss=loss, class_mode='binary')
+    else:
+        model = create_mlp(num_out=nb_classes, activation='softmax')
+        model.compile(optimizer=optimizer, loss=loss)
 
-if keras_plot_available:
-    plot(model, to_file='model.png')
+    if keras_plot_available:
+        plot(model, to_file='model.png')
 
-print('Loading MNIST dataset')
-(X_train, y_train), (X_test, y_test) = mnist.load_data()
+    print('Loading MNIST dataset')
+    (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
-print('Splitting data into training and validation')
-X_val = np.copy(X_train[train_size:])
-y_val = np.copy(y_train[train_size:])
-X_train = np.copy(X_train[:train_size])
-y_train = np.copy(y_train[:train_size])
-print('Training shape = {}, Validation shape = {}, Test shape = {}'.format(
-    X_train.shape, X_val.shape, X_test.shape))
+    print('Splitting data into training and validation')
+    X_val = np.copy(X_train[train_size:])
+    y_val = np.copy(y_train[train_size:])
+    X_train = np.copy(X_train[:train_size])
+    y_train = np.copy(y_train[:train_size])
+    print('Training shape = {}, Validation shape = {}, Test shape = {}'.format(
+        X_train.shape, X_val.shape, X_test.shape))
 
-print('Preprocessing data: classes = {}, binarize = {}, add noise = {}'.format(
-       nb_classes, binarize, add_noise))
-X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
-        binarize=binarize, noise=add_noise, proportion=noise_proportion)
-X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
-        binarize=binarize, noise=add_noise, proportion=noise_proportion)
+    print('Preprocessing data: classes = {}, binarize = {}, add noise = {}'.format(
+           nb_classes, binarize, add_noise))
+    X_train, Y_train = preprocess_data(X_train, y_train, nb_classes=nb_classes,
+            binarize=binarize, noise=add_noise, proportion=noise_proportion)
+    X_val, Y_val = preprocess_data(X_val, y_val, nb_classes=nb_classes,
+            binarize=binarize, noise=add_noise, proportion=noise_proportion)
 
-print('Showing data samples')
-imshow_samples(X_train, y_train, X_val, y_val, 5)
-diary.save_figure(plt, filename='samples', extension='svg')
+    print('Showing data samples')
+    imshow_samples(X_train, y_train, X_val, y_val, 5)
+    diary.save_figure(plt, filename='samples', extension='svg')
 
-print('Creating error and accuracy vectors')
-error_train  = np.zeros(num_epochs+1)
-error_val = np.zeros(num_epochs+1)
-accuracy_train = np.zeros(num_epochs+1)
-accuracy_val = np.zeros(num_epochs+1)
+    print('Creating error and accuracy vectors')
+    error_train  = np.zeros(num_epochs+1)
+    error_val = np.zeros(num_epochs+1)
+    accuracy_train = np.zeros(num_epochs+1)
+    accuracy_val = np.zeros(num_epochs+1)
 
-print('Model predict training scores')
-score_train = model.predict(X_train).flatten()
-if output_activation == 'isotonic_regression':
-    # This are the same points 4 and 5 as in the training loop
-    # 4. Calibrate the network with isotonic regression in the full training
-    #   a. Get the new scores from the model
-    ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
-                            y_min=_EPSILON, y_max=(1-_EPSILON))
-    #   b. Calibrate the scores
-    print('Learning Isotonic Regression from TRAINING set')
-    ir.fit(score_train, Y_train)
-
-# 5. Evaluate the performance with the calibrated probabilities
-#   b. Evaluation on validation set
-print('Model predict validation scores')
-score_val = model.predict(X_val).flatten()
-if output_activation == 'isotonic_regression':
-    prob_train = ir.predict(score_train)
-    print('IR predict validation probabilities')
-    prob_val  = ir.predict(score_val.flatten())
-else:
-    prob_train = score_train
-    prob_val = score_val
-
-error_train[0] = compute_loss(prob_train, Y_train, loss)
-accuracy_train[0] = compute_accuracy(prob_train, Y_train)
-error_val[0] = compute_loss(prob_val, Y_val, loss)
-accuracy_val[0] = compute_accuracy(prob_val, Y_val)
-
-# SHOW INITIAL PERFORMANCE
-print(("train error = {}, val error = {}\n"
-       "train acc = {}, val acc = {}").format(
-                    error_train[0], error_val[0],
-                    accuracy_train[0], accuracy_val[0]))
-
-diary.add_entry('training', [error_train[0], accuracy_train[0]])
-diary.add_entry('validation', [error_val[0], accuracy_val[0]])
-
-# FIXME change epoch by minibatch
-num_minibatches = np.ceil(np.true_divide(train_size,batch_size)).astype('int')
-for epoch in range(1,num_epochs+1):
-    for iteration in range(num_minibatches):
-        # Given the Calibrated probabilities
-        # 1. Choose the next minibatch
-        print('EPOCH {}'.format(epoch))
-        minibatch_id = get_minibatch_id(train_size, batch_size,
-                                         method=minibatch_method,
-                                         iteration=iteration)
-        X_train_mb = X_train[minibatch_id]
-        Y_train_mb = Y_train[minibatch_id]
-
-        if output_activation == 'isotonic_regression':
-            # 2. Compute the new values for the labels on this minibatch
-            #   a. Predict the scores using the network
-            print('\tMODEL PREDICTING TRAINING SCORES')
-            score_train_mb = model.predict(X_train_mb).flatten()
-            #   b. Predict the probabilities using IR
-            print('\tIR PREDICTING TRAINING PROBABILITIES')
-            prob_train_mb = ir.predict(score_train_mb.flatten())
-            #   c. Compute the gradients of IR
-            g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
-            #   c. Compute new values for the labels
-            Y_train_mb_new = prob_train_mb + \
-                             np.divide(np.multiply(prob_train_mb - Y_train_mb,
-                                                   g_prob_train_mb),
-                                       np.multiply(prob_train_mb,
-                                                   1 - prob_train_mb))
-        else:
-            Y_train_mb_new = Y_train_mb
-
-        # 3. Train the network on this minibatch
-        print('\tTRAINING MODEL')
-        model.fit(X_train_mb, Y_train_mb_new, nb_epoch=1,
-                batch_size=inner_batch_size, show_accuracy=True)
-
-        if output_activation == 'isotonic_regression':
-            # 4. Calibrate the network with isotonic regression in the full training
-            #   a. Get the new scores from the model
-            print('\tModel predict training scores')
-            score_train = model.predict(X_train).flatten()
-            #   b. Calibrate the scores
-            print('\tLearning Isotonic Regression from TRAINING set')
-            ir.fit(score_train, Y_train)
-
-    # Evaluate epoch
-    # 5. Evaluate the performance with the calibrated probabilities
-    print('\tModel predict training scores')
+    print('Model predict training scores')
     score_train = model.predict(X_train).flatten()
-    print('\tModel predict validation scores')
+    if output_activation == 'isotonic_regression':
+        # 4. Calibrate the network with isotonic regression in the full training
+        ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
+                                y_min=_EPSILON, y_max=(1-_EPSILON))
+        #   b. Calibrate the scores
+        print('Learning Isotonic Regression from TRAINING set')
+        ir.fit(score_train, Y_train)
+
+    # 5. Evaluate the performance with probabilities
+    #   b. Evaluation on validation set
+    print('Model predict validation scores')
     score_val = model.predict(X_val).flatten()
     if output_activation == 'isotonic_regression':
-        #   a. Evaluation on TRAINING set
-        print('\tIR predict training probabilities')
-        prob_train  = ir.predict(score_train.flatten())
-        #   b. Evaluation on VALIDATION set
-        print('\tIR predict validation probabilities')
-        prob_val  = ir.predict(score_val.flatten())
+        prob_train = ir.predict(score_train)
+        print('IR predict validation probabilities')
+        prob_val  = ir.predict(score_val)
     else:
         prob_train = score_train
         prob_val = score_val
 
-    error_train[epoch] = compute_loss(prob_train, Y_train, loss)
-    accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
-    error_val[epoch] = compute_loss(prob_val, Y_val, loss)
-    accuracy_val[epoch] = compute_accuracy(prob_val, Y_val)
-    # SHOW PERFORMANCE ON MINIBATCH
-    print(("\ttrain error = {}, val error = {}\n"
-           "\ttrain acc = {}, val acc = {}").format(
-                        error_train[epoch], error_val[epoch],
-                        accuracy_train[epoch], accuracy_val[epoch]))
+    error_train[0] = compute_loss(prob_train, Y_train, loss)
+    accuracy_train[0] = compute_accuracy(prob_train, Y_train)
+    error_val[0] = compute_loss(prob_val, Y_val, loss)
+    accuracy_val[0] = compute_accuracy(prob_val, Y_val)
 
-    # SAVE PERFORMANCE ON epoch
-    diary.add_entry('training', [error_train[epoch], accuracy_train[epoch]])
-    diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+    # SHOW INITIAL PERFORMANCE
+    print(("train:  error = {}, acc = {}\n"
+           "valid:  error = {}, acc = {}").format(
+                        error_train[0], accuracy_train[0],
+                        error_val[0], accuracy_val[0]))
 
-    # PLOTS
-    print('\tUpdating all plots')
-    if output_activation == 'isotonic_regression':
-        prob_lin = ir.predict(score_lin)
-        plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
-                                 score_lin=score_lin, prob_lin=prob_lin)
-    else:
-        plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch)
-    diary.save_figure(plt, filename='reliability_diagram', extension='svg')
-    plot_histogram_scores(prob_train, epoch)
-    diary.save_figure(plt, filename='histogram_scores', extension='svg')
-    plot_accuracy(accuracy_train, accuracy_val, epoch)
-    diary.save_figure(plt, filename='accuracy', extension='svg')
-    plot_error(error_train, error_val, epoch, loss)
-    diary.save_figure(plt, filename='error', extension='svg')
-    plt.pause(0.0001)
+    diary.add_entry('training', [error_train[0], accuracy_train[0]])
+    diary.add_entry('validation', [error_val[0], accuracy_val[0]])
+
+    num_minibatches = np.ceil(np.true_divide(train_size,batch_size)).astype('int')
+    for epoch in range(1,num_epochs+1):
+        for iteration in range(num_minibatches):
+            # Given that the probabilities are calibrated
+            # 1. Choose the next minibatch
+            print('EPOCH {}'.format(epoch))
+            minibatch_id = get_minibatch_id(train_size, batch_size,
+                                             method=minibatch_method,
+                                             iteration=iteration)
+            X_train_mb = X_train[minibatch_id]
+            Y_train_mb = Y_train[minibatch_id]
+
+            if output_activation == 'isotonic_regression':
+                # 2. Compute the new values for the labels on this minibatch
+                #   a. Predict the scores using the network
+                print('\tMODEL PREDICTING TRAINING SCORES')
+                score_train_mb = model.predict(X_train_mb).flatten()
+                #   b. Predict the probabilities using IR
+                print('\tIR PREDICTING TRAINING PROBABILITIES')
+                prob_train_mb = ir.predict(score_train_mb.flatten())
+                #   c. Compute the gradients of IR
+                g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
+                #   c. Compute new values for the labels
+                Y_train_mb_new = prob_train_mb + \
+                                 np.divide(np.multiply(prob_train_mb - Y_train_mb,
+                                                       g_prob_train_mb),
+                                           np.multiply(prob_train_mb,
+                                                       1 - prob_train_mb))
+            else:
+                Y_train_mb_new = Y_train_mb
+
+            # 3. Train the network on this minibatch
+            print('\tTRAINING MODEL')
+            model.fit(X_train_mb, Y_train_mb_new, nb_epoch=1,
+                    batch_size=inner_batch_size, show_accuracy=True, verbose=1,
+                    validation_data=(X_val,Y_val))
+
+            if output_activation == 'isotonic_regression':
+                # 4. Calibrate the network with isotonic regression in the full training
+                #   a. Get the new scores from the model
+                print('\tModel predict training scores')
+                score_train = model.predict(X_train).flatten()
+                #   b. Calibrate the scores
+                print('\tLearning Isotonic Regression from TRAINING set')
+                ir.fit(score_train, Y_train)
+
+        # Evaluate epoch
+        # 5. Evaluate the performance with the calibrated probabilities
+        print('\tModel predict training scores')
+        score_train = model.predict(X_train).flatten()
+        print('\tModel predict validation scores')
+        score_val = model.predict(X_val).flatten()
+        if output_activation == 'isotonic_regression':
+            #   a. Evaluation on TRAINING set
+            print('\tIR predict training probabilities')
+            prob_train = ir.predict(score_train.flatten())
+            #   b. Evaluation on VALIDATION set
+            print('\tIR predict validation probabilities')
+            prob_val  = ir.predict(score_val.flatten())
+        else:
+            prob_train = score_train
+            prob_val = score_val
+
+        error_train[epoch] = compute_loss(prob_train, Y_train, loss)
+        accuracy_train[epoch] = compute_accuracy(prob_train, Y_train)
+        error_val[epoch] = compute_loss(prob_val, Y_val, loss)
+        accuracy_val[epoch] = compute_accuracy(prob_val, Y_val)
+        # SHOW PERFORMANCE ON MINIBATCH
+        print(("\ttrain:  error = {}, acc = {}\n"
+               "\tvalid:  error = {}, acc = {}").format(
+                            error_train[epoch], accuracy_train[epoch],
+                            error_val[epoch], accuracy_val[epoch]))
+
+        # SAVE PERFORMANCE ON epoch
+        diary.add_entry('training', [error_train[epoch], accuracy_train[epoch]])
+        diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+
+        # PLOTS
+        print('\tUpdating all plots')
+        if output_activation == 'isotonic_regression':
+            prob_lin = ir.predict(score_lin)
+            plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
+                                     score_lin=score_lin, prob_lin=prob_lin)
+        else:
+            plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch)
+        diary.save_figure(plt, filename='reliability_diagram', extension='svg')
+        plot_histogram_scores(prob_train, epoch)
+        diary.save_figure(plt, filename='histogram_scores', extension='svg')
+        plot_accuracy(accuracy_train, accuracy_val, epoch)
+        diary.save_figure(plt, filename='accuracy', extension='svg')
+        plot_error(error_train, error_val, epoch, loss)
+        diary.save_figure(plt, filename='error', extension='svg')
+        plt.pause(0.0001)
+
+if __name__ == '__main__':
+    status = main()
+    sys.exit(status)
