@@ -43,8 +43,8 @@ optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=30
-batch_size=100
-inner_batch_size=100
+batch_size=1000
+inner_batch_size=1000
 nb_classes=2
 noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
@@ -58,12 +58,17 @@ else:
 
 diary = Diary(name='experiment', path='results')
 diary.add_notebook('hyperparameters')
-diary.add_entry('hyperparameters', ['train_size', train_size,
-    'epoch', num_epochs, 'batch_size', batch_size, 'classes', nb_classes,
-    'inner_batch_size', inner_batch_size,
-    'minibatch_method', minibatch_method,
-    'output_activation', output_activation, 'loss', loss,
-    'optimizer', optimizer.get_config()['name'], 'noise', noise_proportion])
+diary.add_entry('hyperparameters', ['train_size', train_size])
+diary.add_entry('hyperparameters', ['num_classes', nb_classes])
+diary.add_entry('hyperparameters', ['batch_size', batch_size])
+diary.add_entry('hyperparameters', ['inner_batch_size', inner_batch_size])
+diary.add_entry('hyperparameters', ['minibatch_method', minibatch_method])
+diary.add_entry('hyperparameters', ['output_activation', output_activation])
+diary.add_entry('hyperparameters', ['loss', loss])
+diary.add_entry('hyperparameters', ['optimizer', optimizer.get_config()['name']])
+diary.add_entry('hyperparameters', ['binarize', binarize])
+diary.add_entry('hyperparameters', ['add_noise', add_noise])
+diary.add_entry('hyperparameters', ['noise', noise_proportion])
 diary.add_notebook('training')
 diary.add_notebook('validation')
 
@@ -148,7 +153,7 @@ def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
     plt.draw()
 
 def compute_accuracy(scores, labels, threshold=0.5):
-    return np.mean((scores >= threshold).flatten() == labels.flatten())
+    return np.mean((scores > threshold).flatten() == labels.flatten())
 
 def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
                     proportion=0.1):
@@ -288,10 +293,6 @@ diary.add_entry('validation', [error_val[0], accuracy_val[0]])
 # FIXME change epoch by minibatch
 num_minibatches = np.ceil(np.true_divide(train_size,batch_size)).astype('int')
 for epoch in range(1,num_epochs+1):
-    partial_acc_train = 0
-    partial_acc_val = 0
-    partial_err_train = 0
-    partial_err_val = 0
     for iteration in range(num_minibatches):
         # Given the Calibrated probabilities
         # 1. Choose the next minibatch
@@ -302,21 +303,22 @@ for epoch in range(1,num_epochs+1):
         X_train_mb = X_train[minibatch_id]
         Y_train_mb = Y_train[minibatch_id]
 
-        # 2. Compute the new values for the labels on this minibatch
-        #   a. Predict the scores using the network
-        print('\tPREDICTING TRAINING')
-        score_train_mb = model.predict(X_train_mb).flatten()
         if output_activation == 'isotonic_regression':
+            # 2. Compute the new values for the labels on this minibatch
+            #   a. Predict the scores using the network
+            print('\tMODEL PREDICTING TRAINING SCORES')
+            score_train_mb = model.predict(X_train_mb).flatten()
             #   b. Predict the probabilities using IR
-            print('\tPREDICTING TRAINING')
+            print('\tIR PREDICTING TRAINING PROBABILITIES')
             prob_train_mb = ir.predict(score_train_mb.flatten())
             #   c. Compute the gradients of IR
             g_prob_train_mb = isotonic_gradients(ir, prob_train_mb)
             #   c. Compute new values for the labels
             Y_train_mb_new = prob_train_mb + \
-                             np.divide(np.multiply(prob_train_mb-Y_train_mb,
+                             np.divide(np.multiply(prob_train_mb - Y_train_mb,
                                                    g_prob_train_mb),
-                                       np.multiply(prob_train_mb,1-prob_train_mb))
+                                       np.multiply(prob_train_mb,
+                                                   1 - prob_train_mb))
         else:
             Y_train_mb_new = Y_train_mb
 
@@ -334,20 +336,19 @@ for epoch in range(1,num_epochs+1):
             print('\tLearning Isotonic Regression from TRAINING set')
             ir.fit(score_train, Y_train)
 
-            # 5. Evaluate the performance with the calibrated probabilities
-            #   a. Evaluation on TRAINING set
-            prob_train = ir.predict(score_train)
-
+    # Evaluate epoch
+    # 5. Evaluate the performance with the calibrated probabilities
     print('\tModel predict training scores')
     score_train = model.predict(X_train).flatten()
-    #   b. Evaluation on VALIDATION set
     print('\tModel predict validation scores')
     score_val = model.predict(X_val).flatten()
     if output_activation == 'isotonic_regression':
-        print('\tIR predict validation probabilities')
-        prob_val  = ir.predict(score_val.flatten())
+        #   a. Evaluation on TRAINING set
         print('\tIR predict training probabilities')
         prob_train  = ir.predict(score_train.flatten())
+        #   b. Evaluation on VALIDATION set
+        print('\tIR predict validation probabilities')
+        prob_val  = ir.predict(score_val.flatten())
     else:
         prob_train = score_train
         prob_val = score_val
