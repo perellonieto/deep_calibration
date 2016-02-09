@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from os import path
 from scripts.create_dataset import binaryze_dataset, add_salt_and_pepper
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
 
@@ -24,6 +23,7 @@ from keras.datasets import mnist
 
 from diary import Diary
 
+import matplotlib.pyplot as plt
 plt.ion()
 plt.rcParams['image.cmap'] = 'gray'
 plt.rcParams['figure.figsize'] = (5,3.5)
@@ -35,21 +35,20 @@ PATH_SAVE='datasets/mnist/'
 binarize=True
 add_noise=True
 
-#shape='spirals'
-#optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
-optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
+optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=True)
+#optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
 #optimizer = RMSprop()
 #optimizer = Adagrad(lr=1.0, epsilon=1e-06)
 #optimizer = Adamax(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 train_size=50000
 num_epochs=30
-batch_size=100
-inner_batch_size=100
+batch_size=10000
+inner_batch_size=1000
 nb_classes=2
 noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
 minibatch_method='lineal' # 'random', 'lineal'
-output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
+output_activation= 'isotonic_regression' # 'isotonic_regression' # sigmoid
 
 if nb_classes == 2:
     loss='binary_crossentropy'
@@ -248,32 +247,32 @@ error_val = np.zeros(num_epochs+1)
 accuracy_train = np.zeros(num_epochs+1)
 accuracy_val = np.zeros(num_epochs+1)
 
-# This are the same points 4 and 5 as in the training loop
-# 4. Calibrate the network with isotonic regression in the full training
-#   a. Get the new scores from the model
-ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
-                        y_min=0.000001, y_max=0.9999999)
 print('Model predict training scores')
 score_train = model.predict(X_train).flatten()
 if output_activation == 'isotonic_regression':
+    # This are the same points 4 and 5 as in the training loop
+    # 4. Calibrate the network with isotonic regression in the full training
+    #   a. Get the new scores from the model
+    ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
+                            y_min=_EPSILON, y_max=(1-_EPSILON))
     #   b. Calibrate the scores
     print('Learning Isotonic Regression from TRAINING set')
     ir.fit(score_train, Y_train)
-    # 5. Evaluate the performance with the calibrated probabilities
-    #   a. Evaluation on training set
-    prob_train = ir.predict(score_train)
-else:
-    prob_train = score_train
-error_train[0] = compute_loss(prob_train, Y_train, loss)
-accuracy_train[0] = compute_accuracy(prob_train, Y_train)
+
+# 5. Evaluate the performance with the calibrated probabilities
 #   b. Evaluation on validation set
 print('Model predict validation scores')
 score_val = model.predict(X_val).flatten()
 if output_activation == 'isotonic_regression':
+    prob_train = ir.predict(score_train)
     print('IR predict validation probabilities')
     prob_val  = ir.predict(score_val.flatten())
 else:
+    prob_train = score_train
     prob_val = score_val
+
+error_train[0] = compute_loss(prob_train, Y_train, loss)
+accuracy_train[0] = compute_accuracy(prob_train, Y_train)
 error_val[0] = compute_loss(prob_val, Y_val, loss)
 accuracy_val[0] = compute_accuracy(prob_val, Y_val)
 
@@ -282,16 +281,13 @@ print(("train error = {}, val error = {}\n"
        "train acc = {}, val acc = {}").format(
                     error_train[0], error_val[0],
                     accuracy_train[0], accuracy_val[0]))
+
 diary.add_entry('training', [error_train[0], accuracy_train[0]])
 diary.add_entry('validation', [error_val[0], accuracy_val[0]])
 
 # FIXME change epoch by minibatch
 num_minibatches = np.ceil(np.true_divide(train_size,batch_size)).astype('int')
 for epoch in range(1,num_epochs+1):
-    partial_acc_train = 0
-    partial_acc_val = 0
-    partial_err_train = 0
-    partial_err_val = 0
     for iteration in range(num_minibatches):
         # Given the Calibrated probabilities
         # 1. Choose the next minibatch
