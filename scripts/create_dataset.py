@@ -16,8 +16,9 @@ def binaryze_dataset(data, threshold=0.5):
 # Given a dataset with samples and features, it chooses some features for each
 # sample from following a Bernoulli distribution and inverts their values
 def add_salt_and_pepper(data, proportion):
-    num_samples = np.shape(data)[0]
-    original_shape = np.shape(data[0])
+    original_shape = np.shape(data)
+    num_samples = original_shape[0]
+    feature_shape = original_shape[1:]
 
     new_data = np.reshape(data, (num_samples,-1))
     num_features = np.shape(new_data)[1]
@@ -26,8 +27,7 @@ def add_salt_and_pepper(data, proportion):
                                          size=(num_samples,num_features))
 
     new_data = (1-new_data)*salt_and_pepper + new_data*(1-salt_and_pepper)
-    return np.reshape(new_data, (num_samples, original_shape[0],
-        original_shape[1]))
+    return np.reshape(new_data, original_shape)
 
 def add_gaussian_noise(data,mean,std):
     new_data = data + np.random.normal(mean,std,size=np.shape(data))

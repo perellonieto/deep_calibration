@@ -219,13 +219,14 @@ def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
         Y = np_utils.to_categorical(y,nb_classes)
     return X_new,Y
 
-def imshow_samples(X_train, Y_train, X_val, Y_val, num_samples=4):
+def imshow_samples(X_train, Y_train, X_val, Y_val, num_samples=4,
+        labels=[0,1,2,3,4,5,6,7,8,9]):
     fig = plt.figure('samples')
     for j, (data_x, data_y) in enumerate([(X_train, Y_train), (X_val, Y_val)]):
         for i in range(num_samples):
             plt.subplot(2,num_samples,(j*num_samples+i)+1)
             plt.imshow(np.reshape(data_x[i], (28,28)))
-            plt.title(data_y[i])
+            plt.title(labels[data_y[i].eval()])
     plt.draw()
 
 def plot_accuracy(accuracy_train, accuracy_val, epoch):
@@ -241,8 +242,8 @@ def plot_error(error_train, error_val, epoch, loss):
     fig = plt.figure('error')
     plt.clf()
     plt.title(loss)
-    plt.plot(range(0,epoch), error_train[:epoch], 'x-', label='train')
-    plt.plot(range(0,epoch), error_val[:epoch], '+-', label='val')
+    plt.plot(range(1,epoch+1), error_train[1:epoch+1]*100, 'x-', label='train')
+    plt.plot(range(1,epoch+1), error_val[1:epoch+1]*100, '+-', label='val')
     plt.legend()
     plt.ylabel(loss)
     plt.xlabel('epoch')
@@ -444,11 +445,25 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
 
 
    """
-    datasets = load_data(dataset)
+    if add_noise==True:
+        datasets = load_data(dataset, nb_classes=nb_classes, binarize=binarize,
+                             noise_prop=noise_proportion)
+    else:
+        datasets = load_data(dataset, nb_classes=nb_classes, binarize=binarize)
 
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
+
+    print('Showing data samples')
+    if nb_classes == 2:
+        labels = ['odd', 'even']
+    else:
+        labels = [0,1,2,3,4,5,6,7,8,9]
+    imshow_samples(train_set_x.get_value(), train_set_y,
+            valid_set_x.get_value(), valid_set_y, num_samples=4, labels=labels)
+    plt.pause(0.0001)
+    diary.save_figure(plt, filename='samples', extension='svg')
 
     # compute number of minibatches for training, validation and testing
     n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
@@ -508,6 +523,15 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
         }
     )
 
+    training_error_model = theano.function(
+        inputs=[index],
+        outputs=classifier.errors(y),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+            y: train_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
     # start-snippet-5
     # compute the gradient of cost with respect to theta (sotred in params)
     # the resulting gradients will be stored in a list gparams
@@ -564,6 +588,8 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
     epoch = 0
     done_looping = False
 
+    error_tra = np.zeros(n_epochs)
+    error_val = np.zeros(n_epochs)
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         for minibatch_index in range(n_train_batches):
@@ -613,6 +639,15 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
             if patience <= iter:
                 done_looping = True
                 break
+
+        training_losses = [training_error_model(i) for i
+                             in range(n_train_batches)]
+        error_tra[epoch] = numpy.mean(training_losses)
+        error_val[epoch] = this_validation_loss
+        diary.add_entry('training', [error_tra[epoch]])
+        diary.add_entry('validation', [error_val[epoch]])
+        plot_error(error_tra, error_val, epoch, 'accuracy error')
+        plt.pause(0.0001)
 
     end_time = timeit.default_timer()
     print(('Optimization complete. Best validation score of %f %% '

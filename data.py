@@ -11,23 +11,23 @@ from keras.utils import np_utils
 
 from scripts.create_dataset import binaryze_dataset, add_salt_and_pepper
 
-def preprocess_data(X,y,nb_classes=10, binarize=False, noise=False,
-                    proportion=0.1):
+def preprocess_data(X,y,nb_classes=10, binarize=False, noise_prop=0.49):
     X_new = X.reshape(-1, 784)
     X_new = X_new.astype('float32')
-    X_new /= 255.0
     print(X_new.shape[0], 'samples')
     if binarize:
         X_new = binaryze_dataset(X_new, threshold=0.5)
-    if noise:
-        X_new = add_salt_and_pepper(X_new,proportion=proportion)
+    if noise_prop != None:
+        print("Adding salt and pepper ({})".format(noise_prop))
+        X_new = add_salt_and_pepper(X_new,proportion=noise_prop)
     if nb_classes == 2:
-        Y = np.in1d(y,[0,2,4,6,8]).astype('float64')
+        Y = numpy.in1d(y,[0,2,4,6,8]).astype('float64')
     else:
-        Y = np_utils.to_categorical(y,nb_classes)
+        Y = y
+        print(Y.shape)
     return X_new,Y
 
-def load_data(dataset):
+def load_data(dataset, nb_classes=10, binarize=False, noise_prop=None):
     ''' Loads the dataset
 
     :type dataset: string
@@ -101,13 +101,13 @@ def load_data(dataset):
 
     test_set_x, test_set_y = test_set
     test_set_x, test_set_y = preprocess_data(test_set_x, test_set_y,
-            nb_classes=10)
+            nb_classes=nb_classes, binarize=binarize, noise_prop=noise_prop)
     valid_set_x, valid_set_y = valid_set
     valid_set_x, valid_set_y = preprocess_data(valid_set_x, valid_set_y,
-            nb_classes=10)
+            nb_classes=nb_classes, binarize=binarize, noise_prop=noise_prop)
     train_set_x, train_set_y = train_set
     train_set_x, train_set_y = preprocess_data(train_set_x, train_set_y,
-            nb_classes=10)
+            nb_classes=nb_classes, binarize=binarize, noise_prop=noise_prop)
 
     test_set_x, test_set_y = shared_dataset(test_set_x, test_set_y)
     valid_set_x, valid_set_y = shared_dataset(valid_set_x, valid_set_y)
