@@ -181,7 +181,6 @@ def create_model(classes, optimizer, loss):
     return model
 
 def reliability_diagram(prob, Y, marker='--', label=''):
-    # TODO modify the centers of the bins by their centroids
     hist_tot = np.histogram(prob, bins=np.linspace(0,1,11))
     hist_pos = np.histogram(prob[Y == 1], bins=np.linspace(0,1,11))
     plt.plot([0,1],[0,1], 'r--')
@@ -694,18 +693,39 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
 
     epoch = 0
     # Error in accuracy
-    training_loss = [training_loss_model(i) for i
-                         in range(n_train_batches)]
-    validation_loss = [validation_loss_model(i) for i
-                         in range(n_valid_batches)]
-    error_tra[epoch] = numpy.mean(training_loss)
-    error_val[epoch] = numpy.mean(validation_loss)
-    training_acc = [training_accuracy_model(i) for i
-                         in range(n_train_batches)]
-    validation_acc = [validation_accuracy_model(i) for i
-                         in range(n_valid_batches)]
-    accuracy_tra[epoch] = numpy.mean(training_acc)
-    accuracy_val[epoch] = numpy.mean(validation_acc)
+    Y_train = train_set_y.eval()
+    Y_valid = valid_set_y.eval()
+
+    print('Model predict training scores')
+    score_train = np.asarray([training_scores_model(i) for i
+        in range(n_train_batches)]).reshape(-1,nb_classes)[:,1]
+
+    if output_activation == 'isotonic_regression':
+        # 4. Calibrate the network with isotonic regression in the full training
+        ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
+                                y_min=_EPSILON, y_max=(1-_EPSILON))
+        #   b. Calibrate the scores
+        print('Learning Isotonic Regression from TRAINING set')
+        ir.fit(score_train, Y_train)
+
+    # 5. Evaluate the performance with probabilities
+    #   b. Evaluation on validation set
+    print('Model predict validation scores')
+    score_val = np.asarray([validation_scores_model(i) for i
+        in range(n_valid_batches)]).reshape(-1,nb_classes)[:,1]
+    if output_activation == 'isotonic_regression':
+        prob_train = ir.predict(score_train)
+        print('IR predict validation probabilities')
+        prob_val  = ir.predict(score_val)
+    else:
+        prob_train = score_train
+        prob_val = score_val
+
+    error_tra[epoch] = compute_loss(prob_train, Y_train, loss)
+    error_val[epoch] = compute_loss(prob_val, Y_valid, loss)
+    accuracy_tra[epoch] = compute_accuracy(prob_train, Y_train)
+    accuracy_val[epoch] = compute_accuracy(prob_val, Y_valid)
+
     diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
     diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
 
@@ -761,18 +781,47 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
                 break
 
         # Error in accuracy
-        training_loss = [training_loss_model(i) for i
-                             in range(n_train_batches)]
-        validation_loss = [validation_loss_model(i) for i
-                             in range(n_valid_batches)]
-        error_tra[epoch] = numpy.mean(training_loss)
-        error_val[epoch] = numpy.mean(validation_loss)
-        training_acc = [training_accuracy_model(i) for i
-                             in range(n_train_batches)]
-        validation_acc = [validation_accuracy_model(i) for i
-                             in range(n_valid_batches)]
-        accuracy_tra[epoch] = numpy.mean(training_acc)
-        accuracy_val[epoch] = numpy.mean(validation_acc)
+        #training_loss = [training_loss_model(i) for i
+        #                     in range(n_train_batches)]
+        #validation_loss = [validation_loss_model(i) for i
+        #                     in range(n_valid_batches)]
+        #error_tra[epoch] = numpy.mean(training_loss)
+        #error_val[epoch] = numpy.mean(validation_loss)
+        #training_acc = [training_accuracy_model(i) for i
+        #                     in range(n_train_batches)]
+        #validation_acc = [validation_accuracy_model(i) for i
+        #                     in range(n_valid_batches)]
+        #accuracy_tra[epoch] = numpy.mean(training_acc)
+        #accuracy_val[epoch] = numpy.mean(validation_acc)
+
+        print('Model predict training scores')
+        score_train = np.asarray([training_scores_model(i) for i
+            in range(n_train_batches)]).reshape(-1,nb_classes)[:,1]
+
+        if output_activation == 'isotonic_regression':
+            # 4. Calibrate the network with isotonic regression in the full training
+            #   b. Calibrate the scores
+            print('Learning Isotonic Regression from TRAINING set')
+            ir.fit(score_train, Y_train)
+
+        # 5. Evaluate the performance with probabilities
+        #   b. Evaluation on validation set
+        print('Model predict validation scores')
+        score_val = np.asarray([validation_scores_model(i) for i
+            in range(n_valid_batches)]).reshape(-1,nb_classes)[:,1]
+        if output_activation == 'isotonic_regression':
+            prob_train = ir.predict(score_train)
+            print('IR predict validation probabilities')
+            prob_val  = ir.predict(score_val)
+        else:
+            prob_train = score_train
+            prob_val = score_val
+
+        error_tra[epoch] = compute_loss(prob_train, Y_train, loss)
+        error_val[epoch] = compute_loss(prob_val, Y_valid, loss)
+        accuracy_tra[epoch] = compute_accuracy(prob_train, Y_train)
+        accuracy_val[epoch] = compute_accuracy(prob_val, Y_valid)
+
         diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
         diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
 
@@ -781,14 +830,20 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
         plot_accuracy(accuracy_tra, accuracy_val, epoch)
         diary.save_figure(plt, filename='accuracy', extension='svg')
         if nb_classes == 2:
-            prob_train = np.asarray([training_scores_model(i) for i
-                             in range(n_train_batches)]).reshape(-1,nb_classes)
-            prob_val = np.asarray([validation_scores_model(i) for i
-                             in range(n_valid_batches)]).reshape(-1,nb_classes)
-            plot_reliability_diagram(prob_train[:,1], train_set_y.eval(),
-                                     prob_val[:,1], valid_set_y.eval(), epoch)
+            #prob_train = np.asarray([training_scores_model(i) for i
+            #                 in range(n_train_batches)]).reshape(-1,nb_classes)
+            #prob_val = np.asarray([validation_scores_model(i) for i
+            #                 in range(n_valid_batches)]).reshape(-1,nb_classes)
+            if output_activation == 'isotonic_regression':
+                prob_lin = ir.predict(score_lin)
+                plot_reliability_diagram(prob_train, Y_train,
+                                     prob_val, Y_valid, epoch,
+                                     prob_lin, score_lin)
+            else:
+                plot_reliability_diagram(prob_train, Y_train,
+                                     prob_val, Y_valid, epoch)
             diary.save_figure(plt, filename='reliability_diagram', extension='svg')
-            plot_histogram_scores(prob_train[:,1], prob_val[:,1], epoch=epoch)
+            plot_histogram_scores(prob_train, prob_val, epoch=epoch)
             diary.save_figure(plt, filename='histogram_scores', extension='svg')
         #from IPython import embed
         #embed()
