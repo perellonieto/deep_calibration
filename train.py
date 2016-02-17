@@ -60,6 +60,7 @@ nb_classes=2
 noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
 minibatch_method='lineal' # 'random', 'lineal'
+n_hidden=[100,100,100]
 output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
 
 if nb_classes == 2:
@@ -233,27 +234,32 @@ def plot_accuracy(accuracy_train, accuracy_val, epoch):
     fig = plt.figure('accuracy')
     plt.clf()
     plt.title("Accuracy")
-    plt.plot(range(0,epoch), accuracy_train[:epoch], 'x-', label='train')
-    plt.plot(range(0,epoch), accuracy_val[:epoch], '+-', label='val')
+    plt.plot(range(1,epoch+1), accuracy_train[1:epoch+1], 'x-', label='train')
+    plt.plot(range(1,epoch+1), accuracy_val[1:epoch+1], '+-', label='val')
     plt.legend(loc='lower right')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.grid(True)
     plt.draw()
 
 def plot_error(error_train, error_val, epoch, loss):
     fig = plt.figure('error')
     plt.clf()
     plt.title(loss)
-    plt.plot(range(1,epoch+1), error_train[1:epoch+1]*100, 'x-', label='train')
-    plt.plot(range(1,epoch+1), error_val[1:epoch+1]*100, '+-', label='val')
+    plt.plot(range(1,epoch+1), error_train[1:epoch+1], 'x-', label='train')
+    plt.plot(range(1,epoch+1), error_val[1:epoch+1], '+-', label='val')
     plt.legend()
     plt.ylabel(loss)
     plt.xlabel('epoch')
+    plt.grid(True)
     plt.draw()
 
-def plot_histogram_scores(scores, epoch):
+def plot_histogram_scores(scores_train, scores_val,  epoch):
     fig = plt.figure('histogram_scores')
     plt.clf()
     plt.title('Histogram of scores (train)')
-    plt.hist(scores, bins=np.linspace(0,1,11))
+    plt.hist([scores_train, scores_val], bins=np.linspace(0,1,11))
+    plt.grid(True)
     plt.draw()
 
 def isotonic_gradients(ir, scores, delta=0.01):
@@ -264,7 +270,7 @@ def isotonic_gradients(ir, scores, delta=0.01):
     return -np.ones(np.shape(scores))
 
 
-def main():
+def main_old():
     model = create_model(nb_classes, optimizer, loss)
 
     if keras_plot_available:
@@ -416,8 +422,8 @@ def main():
         diary.save_figure(plt, filename='error', extension='svg')
         plt.pause(0.0001)
 
-def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
-             dataset='mnist.pkl.gz', batch_size=20, n_hidden=500):
+def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
+             dataset='mnist.pkl.gz', batch_size=20, n_hidden=[500, 500]):
     """
     Demonstrate stochastic gradient descent optimization for a multilayer
     perceptron
@@ -489,7 +495,7 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
         input=x,
         n_in=28 * 28,
         n_hidden=n_hidden,
-        n_out=10
+        n_out=nb_classes
     )
 
     # start-snippet-4
@@ -529,6 +535,100 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
         givens={
             x: train_set_x[index * batch_size:(index + 1) * batch_size],
             y: train_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    # compiling a Theano function that computes the mistakes that are made
+    # by the model on a minibatch
+    test_loss_model = theano.function(
+        inputs=[index],
+        outputs=classifier.loss(y),
+        givens={
+            x: test_set_x[index * batch_size:(index + 1) * batch_size],
+            y: test_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    validation_loss_model = theano.function(
+        inputs=[index],
+        outputs=classifier.loss(y),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+            y: valid_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    training_loss_model = theano.function(
+        inputs=[index],
+        outputs=classifier.loss(y),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+            y: train_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    # compiling a Theano function that computes the mistakes that are made
+    # by the model on a minibatch
+    test_accuracy_model = theano.function(
+        inputs=[index],
+        outputs=classifier.accuracy(y),
+        givens={
+            x: test_set_x[index * batch_size:(index + 1) * batch_size],
+            y: test_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    validation_accuracy_model = theano.function(
+        inputs=[index],
+        outputs=classifier.accuracy(y),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+            y: valid_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    training_accuracy_model = theano.function(
+        inputs=[index],
+        outputs=classifier.accuracy(y),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+            y: train_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    # compiling a Theano function that computes the predictions on the
+    # training data
+    training_predictions_model = theano.function(
+        inputs=[index],
+        outputs=classifier.predictions(),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+        }
+    )
+
+    validation_predictions_model = theano.function(
+        inputs=[index],
+        outputs=classifier.predictions(),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+        }
+    )
+
+    # compiling a Theano function that computes the predictions on the
+    # training data
+    training_scores_model = theano.function(
+        inputs=[index],
+        outputs=classifier.scores(),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+        }
+    )
+
+    validation_scores_model = theano.function(
+        inputs=[index],
+        outputs=classifier.scores(),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
         }
     )
 
@@ -590,6 +690,8 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
 
     error_tra = np.zeros(n_epochs)
     error_val = np.zeros(n_epochs)
+    accuracy_tra = np.zeros(num_epochs)
+    accuracy_val = np.zeros(num_epochs)
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         for minibatch_index in range(n_train_batches):
@@ -640,13 +742,39 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
                 done_looping = True
                 break
 
-        training_losses = [training_error_model(i) for i
+        if nb_classes == 2:
+            prob_train = np.asarray([training_scores_model(i) for i
+                             in range(n_train_batches)]).reshape(-1,nb_classes)
+            prob_val = np.asarray([validation_scores_model(i) for i
+                             in range(n_valid_batches)]).reshape(-1,nb_classes)
+            plot_reliability_diagram(prob_train[:,1], train_set_y.eval(),
+                                     prob_val[:,1], valid_set_y.eval(), epoch)
+            diary.save_figure(plt, filename='reliability_diagram', extension='svg')
+            plot_histogram_scores(prob_train[:,1], prob_val[:,1], epoch=epoch)
+            diary.save_figure(plt, filename='histogram_scores', extension='svg')
+        #from IPython import embed
+        #embed()
+        # Error in accuracy
+        training_loss = [training_loss_model(i) for i
                              in range(n_train_batches)]
-        error_tra[epoch] = numpy.mean(training_losses)
-        error_val[epoch] = this_validation_loss
-        diary.add_entry('training', [error_tra[epoch]])
-        diary.add_entry('validation', [error_val[epoch]])
-        plot_error(error_tra, error_val, epoch, 'accuracy error')
+        validation_loss = [validation_loss_model(i) for i
+                             in range(n_valid_batches)]
+        error_tra[epoch] = numpy.mean(training_loss)
+        error_val[epoch] = numpy.mean(validation_loss)
+
+        training_acc = [training_accuracy_model(i) for i
+                             in range(n_train_batches)]
+        validation_acc = [validation_accuracy_model(i) for i
+                             in range(n_valid_batches)]
+        accuracy_tra[epoch] = numpy.mean(training_acc)
+        accuracy_val[epoch] = numpy.mean(validation_acc)
+
+        diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
+        diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+        plot_error(error_tra, error_val, epoch, 'loss')
+        diary.save_figure(plt, filename='error', extension='svg')
+        plot_accuracy(accuracy_tra, accuracy_val, epoch)
+        diary.save_figure(plt, filename='accuracy', extension='svg')
         plt.pause(0.0001)
 
     end_time = timeit.default_timer()
@@ -656,7 +784,6 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
     #print(('The code for file ' + os.path.split(__file__)[1] + ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
 
 if __name__ == '__main__':
-    test_mlp()
-    #status = main()
-    #sys.exit(status)
+    status = main(n_hidden=n_hidden)
+    sys.exit(status)
 
