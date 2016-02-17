@@ -44,8 +44,8 @@ np.random.seed(1234)
 _EPSILON=10e-8
 
 PATH_SAVE='datasets/mnist/'
-binarize=True
-add_noise=True
+binarize=False
+add_noise=False
 
 #optimizer = SGD(lr=0.5, decay=1e-1, momentum=0.9, nesterov=False)
 optimizer = Adadelta(lr=1.0, rho=0.95, epsilon=1e-06)
@@ -60,7 +60,7 @@ nb_classes=2
 noise_proportion=0.25
 score_lin=np.linspace(0,1,100)
 minibatch_method='lineal' # 'random', 'lineal'
-n_hidden=[100,100,100]
+n_hidden=[25, 25]
 output_activation= 'sigmoid' # 'isotonic_regression' # sigmoid
 
 if nb_classes == 2:
@@ -185,7 +185,9 @@ def reliability_diagram(prob, Y, marker='--', label=''):
     hist_tot = np.histogram(prob, bins=np.linspace(0,1,11))
     hist_pos = np.histogram(prob[Y == 1], bins=np.linspace(0,1,11))
     plt.plot([0,1],[0,1], 'r--')
-    plt.plot(hist_pos[1][:-1]+0.05, np.true_divide(hist_pos[0],hist_tot[0]+1),
+    centroids = [np.mean(np.append(prob[(prob > hist_tot[1][i]) * (prob <
+        hist_tot[1][i+1])], hist_tot[1][i]+0.05)) for i in range(len(hist_tot[1])-1)]
+    plt.plot(centroids, np.true_divide(hist_pos[0]+1,hist_tot[0]+2),
              marker, linewidth=2.0, label=label)
 
 def plot_reliability_diagram(prob_train, Y_train, prob_val, Y_val, epoch,
@@ -685,13 +687,29 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
     test_score = 0.
     start_time = timeit.default_timer()
 
-    epoch = 0
-    done_looping = False
+    error_tra = np.zeros(n_epochs+1)
+    error_val = np.zeros(n_epochs+1)
+    accuracy_tra = np.zeros(n_epochs+1)
+    accuracy_val = np.zeros(n_epochs+1)
 
-    error_tra = np.zeros(n_epochs)
-    error_val = np.zeros(n_epochs)
-    accuracy_tra = np.zeros(num_epochs)
-    accuracy_val = np.zeros(num_epochs)
+    epoch = 0
+    # Error in accuracy
+    training_loss = [training_loss_model(i) for i
+                         in range(n_train_batches)]
+    validation_loss = [validation_loss_model(i) for i
+                         in range(n_valid_batches)]
+    error_tra[epoch] = numpy.mean(training_loss)
+    error_val[epoch] = numpy.mean(validation_loss)
+    training_acc = [training_accuracy_model(i) for i
+                         in range(n_train_batches)]
+    validation_acc = [validation_accuracy_model(i) for i
+                         in range(n_valid_batches)]
+    accuracy_tra[epoch] = numpy.mean(training_acc)
+    accuracy_val[epoch] = numpy.mean(validation_acc)
+    diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
+    diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+
+    done_looping = False
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
         for minibatch_index in range(n_train_batches):
@@ -742,6 +760,26 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
                 done_looping = True
                 break
 
+        # Error in accuracy
+        training_loss = [training_loss_model(i) for i
+                             in range(n_train_batches)]
+        validation_loss = [validation_loss_model(i) for i
+                             in range(n_valid_batches)]
+        error_tra[epoch] = numpy.mean(training_loss)
+        error_val[epoch] = numpy.mean(validation_loss)
+        training_acc = [training_accuracy_model(i) for i
+                             in range(n_train_batches)]
+        validation_acc = [validation_accuracy_model(i) for i
+                             in range(n_valid_batches)]
+        accuracy_tra[epoch] = numpy.mean(training_acc)
+        accuracy_val[epoch] = numpy.mean(validation_acc)
+        diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
+        diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+
+        plot_error(error_tra, error_val, epoch, 'loss')
+        diary.save_figure(plt, filename='error', extension='svg')
+        plot_accuracy(accuracy_tra, accuracy_val, epoch)
+        diary.save_figure(plt, filename='accuracy', extension='svg')
         if nb_classes == 2:
             prob_train = np.asarray([training_scores_model(i) for i
                              in range(n_train_batches)]).reshape(-1,nb_classes)
@@ -754,27 +792,6 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
             diary.save_figure(plt, filename='histogram_scores', extension='svg')
         #from IPython import embed
         #embed()
-        # Error in accuracy
-        training_loss = [training_loss_model(i) for i
-                             in range(n_train_batches)]
-        validation_loss = [validation_loss_model(i) for i
-                             in range(n_valid_batches)]
-        error_tra[epoch] = numpy.mean(training_loss)
-        error_val[epoch] = numpy.mean(validation_loss)
-
-        training_acc = [training_accuracy_model(i) for i
-                             in range(n_train_batches)]
-        validation_acc = [validation_accuracy_model(i) for i
-                             in range(n_valid_batches)]
-        accuracy_tra[epoch] = numpy.mean(training_acc)
-        accuracy_val[epoch] = numpy.mean(validation_acc)
-
-        diary.add_entry('training', [error_tra[epoch], accuracy_tra[epoch]])
-        diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
-        plot_error(error_tra, error_val, epoch, 'loss')
-        diary.save_figure(plt, filename='error', extension='svg')
-        plot_accuracy(accuracy_tra, accuracy_val, epoch)
-        diary.save_figure(plt, filename='accuracy', extension='svg')
         plt.pause(0.0001)
 
     end_time = timeit.default_timer()
@@ -784,6 +801,6 @@ def main(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
     #print(('The code for file ' + os.path.split(__file__)[1] + ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
 
 if __name__ == '__main__':
-    status = main(n_hidden=n_hidden)
+    status = main(n_epochs=num_epochs, n_hidden=n_hidden)
     sys.exit(status)
 
