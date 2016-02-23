@@ -15,16 +15,17 @@ import theano.tensor as T
 from presentationtier import PresentationTier
 
 from data import generate_gaussian_data
+from diary import Diary
 
 n_epochs=50
-batch_size=400
+batch_size=100
 learning_rate=0.1
 
 class LogisticRegression(object):
-    """Multi-class Logistic Regression Class
+    """Binary Logistic Regression Class
 
-    The logistic regression is fully described by a weight matrix :math:`W`
-    and bias vector :math:`b`. Classification is done by projecting data
+    The logistic regression is fully described by a weight vector :math:`w`
+    and bias :math:`b`. Classification is done by projecting data
     points onto a set of hyperplanes, the distance to which is used to
     determine a class membership probability.
     """
@@ -97,6 +98,27 @@ class LogisticRegression(object):
     def scores(self):
         return self.p_y_given_x
 
+    def accuracy(self, y):
+        """Return a float representing the accuracy in the minibatch
+        over the total number of examples of the minibatch ; zero one
+        loss over the size of the minibatch
+
+        :type y: theano.tensor.TensorType
+        :param y: corresponds to a vector that gives for each example the
+                  correct label
+        """
+
+        # check if y has same dimension of y_pred
+        if y.ndim != self.y_pred.ndim:
+            raise TypeError(
+                'y should have the same shape as self.y_pred',
+                ('y', y.type, 'y_pred', self.y_pred.type)
+            )
+        # check if y is of the correct datatype
+        if y.dtype.startswith('int'):
+            return T.mean(T.eq(self.y_pred, y))
+        else:
+            raise NotImplementedError()
 
 def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                            batch_size=600):
@@ -114,14 +136,30 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
     """
     #datasets = load_data(dataset)
 
+    diary = Diary(name='experiment', path='results')
+    diary.add_notebook('training')
+    diary.add_notebook('validation')
+
     means=[[0,0],[5,5]]
     cov=[[[1,0],[0,1]],[[3,0],[0,3]]]
     samples=[4000,10000]
     datasets = generate_gaussian_data(means, cov, samples)
 
+    diary.add_notebook('data')
+    diary.add_entry('data', ['num_classes', len(samples)])
+    diary.add_entry('data', ['means', means])
+    diary.add_entry('data', ['covariance', cov])
+    diary.add_entry('data', ['samples', samples])
+
+    diary.add_entry('data', ['batch_size', batch_size])
+
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
+
+    diary.add_entry('data', ['train_size', len(train_set_y.eval())])
+    diary.add_entry('data', ['valid_size', len(valid_set_y.eval())])
+    diary.add_entry('data', ['test_size', len(test_set_y.eval())])
 
     pt = PresentationTier()
     pt.plot_samples(train_set_x.eval(), train_set_y.eval())
@@ -179,11 +217,27 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                 x: valid_set_x[index * batch_size:(index + 1) * batch_size],
                 y: valid_set_y[index * batch_size:(index + 1) * batch_size]})
 
-    scores_grid = theano.function(inputs=[],
+    # Scores
+    grid_scores_model = theano.function(inputs=[],
             outputs=classifier.scores(),
             givens={
                 x: grid_set_x})
 
+    training_scores_model = theano.function(
+        inputs=[index],
+        outputs=classifier.scores(),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+        }
+    )
+
+    validation_scores_model = theano.function(
+        inputs=[index],
+        outputs=classifier.scores(),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+        }
+    )
     # compute the gradient of cost with respect to theta = (W,b)
     g_w = T.grad(cost=cost, wrt=classifier.w)
     g_b = T.grad(cost=cost, wrt=classifier.b)
@@ -203,6 +257,38 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                 x: train_set_x[index * batch_size:(index + 1) * batch_size],
                 y: train_set_y[index * batch_size:(index + 1) * batch_size]})
 
+    # Accuracy
+    validation_accuracy_model = theano.function(
+        inputs=[index],
+        outputs=classifier.accuracy(y),
+        givens={
+            x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+            y: valid_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    training_accuracy_model = theano.function(
+        inputs=[index],
+        outputs=classifier.accuracy(y),
+        givens={
+            x: train_set_x[index * batch_size:(index + 1) * batch_size],
+            y: train_set_y[index * batch_size:(index + 1) * batch_size]
+        }
+    )
+
+    # Loss
+    training_error_model = theano.function(inputs=[index],
+            outputs=classifier.errors(y),
+            givens={
+                x: train_set_x[index * batch_size:(index + 1) * batch_size],
+                y: train_set_y[index * batch_size:(index + 1) * batch_size]})
+
+    validation_error_model = theano.function(inputs=[index],
+            outputs=classifier.errors(y),
+            givens={
+                x: valid_set_x[index * batch_size:(index + 1) * batch_size],
+                y: valid_set_y[index * batch_size:(index + 1) * batch_size]})
+
     ###############
     # TRAIN MODEL #
     ###############
@@ -218,6 +304,12 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                                   # minibatche before checking the network
                                   # on the validation set; in this case we
                                   # check every epoch
+
+    print('Creating error and accuracy vectors')
+    error_train  = numpy.zeros(n_epochs+1)
+    error_val = numpy.zeros(n_epochs+1)
+    accuracy_train = numpy.zeros(n_epochs+1)
+    accuracy_val = numpy.zeros(n_epochs+1)
 
     best_params = None
     best_validation_loss = numpy.inf
@@ -268,10 +360,38 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                 done_looping = True
                 break
 
-        model_scores_grid = scores_grid()
-        pt.update_contourline(grid_set_x.eval(), model_scores_grid, delta)
+        scores_grid = grid_scores_model()
+        pt.update_contourline(grid_set_x.eval(), scores_grid, delta)
+        scores_train = numpy.asarray([training_scores_model(i) for i
+                                    in range(n_train_batches)]).flatten()
+        scores_val = numpy.asarray([validation_scores_model(i) for i
+                                  in range(n_valid_batches)]).flatten()
+        fig = pt.plot_reliability_diagram(scores_train, train_set_y.eval(),
+                                    scores_val, valid_set_y.eval())
+        diary.save_figure(fig, filename='reliability_diagram', extension='svg')
+        fig = pt.plot_histogram_scores(scores_train, scores_val)
+        diary.save_figure(fig, filename='histogram_scores', extension='svg')
 
-    pt.update_contourline(grid_set_x.eval(), model_scores_grid, delta,
+        # Performance
+        accuracy_train[epoch] = numpy.asarray([training_accuracy_model(i) for i
+                                in range(n_train_batches)]).flatten().mean()
+        accuracy_val[epoch] = numpy.asarray([validation_accuracy_model(i) for i
+                                in range(n_valid_batches)]).flatten().mean()
+        error_train[epoch] = numpy.asarray([training_error_model(i) for i
+                                in range(n_train_batches)]).flatten().mean()
+        error_val[epoch] = numpy.asarray([validation_error_model(i) for i
+                               in range(n_valid_batches)]).flatten().mean()
+
+        diary.add_entry('training', [error_train[epoch], accuracy_train[epoch]])
+        diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
+
+        fig = pt.plot_accuracy(accuracy_train[1:epoch], accuracy_val[1:epoch])
+        diary.save_figure(fig, filename='accuracy', extension='svg')
+        fig = pt.plot_error(error_train[1:epoch], error_val[1:epoch], 'cross-entropy')
+        diary.save_figure(fig, filename='error', extension='svg')
+
+
+    pt.update_contourline(grid_set_x.eval(), scores_grid, delta,
             clabel=True)
     end_time = time.clock()
     print(('Optimization complete with best validation score of %f %%,'
@@ -279,9 +399,6 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                  (best_validation_loss * 100., test_score * 100.))
     print 'The code run for %d epochs, with %f epochs/sec' % (
         epoch, 1. * epoch / (end_time - start_time))
-
-
-
 
     #print >> sys.stderr, ('The code for file ' +
     #                      os.path.split(__file__)[1] +
