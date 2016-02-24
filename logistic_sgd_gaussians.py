@@ -22,6 +22,17 @@ from diary import Diary
 n_epochs=50
 batch_size=100
 learning_rate=0.1
+numpy.random.seed(1234)
+_EPSILON=10e-8
+
+def compute_accuracy(scores, labels, threshold=0.5):
+    return numpy.mean(numpy.equal((scores >= threshold),labels))
+
+def compute_cross_entropy(P, Y):
+    P_clip = P.clip(_EPSILON, 1.0 - _EPSILON)
+    error = -numpy.mean(numpy.multiply(Y, numpy.log(P_clip)) +
+                     numpy.multiply((1.0 - Y), numpy.log(1.0 - P_clip)))
+    return error
 
 class LogisticRegression(object):
     """Binary Logistic Regression Class
@@ -312,6 +323,11 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
     error_val = numpy.zeros(n_epochs+1)
     accuracy_train = numpy.zeros(n_epochs+1)
     accuracy_val = numpy.zeros(n_epochs+1)
+    # Results for Isotonic Regression
+    error_train_ir  = numpy.zeros(n_epochs+1)
+    error_val_ir = numpy.zeros(n_epochs+1)
+    accuracy_train_ir = numpy.zeros(n_epochs+1)
+    accuracy_val_ir = numpy.zeros(n_epochs+1)
 
     best_params = None
     best_validation_loss = numpy.inf
@@ -385,7 +401,7 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
         legend = ['train', 'valid', 'iso. train', 'iso. valid']
         fig = pt.plot_reliability_diagram(scores_set, labels_set, legend)
         diary.save_figure(fig, filename='reliability_diagram', extension='svg')
-        fig = pt.plot_histogram_scores(scores_train, scores_val)
+        fig = pt.plot_histogram_scores(scores_set)
         diary.save_figure(fig, filename='histogram_scores', extension='svg')
 
         # Performance
@@ -398,12 +414,22 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
         error_val[epoch] = numpy.asarray([validation_error_model(i) for i
                                in range(n_valid_batches)]).flatten().mean()
 
+        accuracy_train_ir[epoch] = compute_accuracy(scores_train_ir, train_set_y.eval())
+        accuracy_val_ir[epoch] = compute_accuracy(scores_val_ir, valid_set_y.eval())
+        error_train_ir[epoch]  = compute_cross_entropy(scores_train_ir, train_set_y.eval())
+        error_val_ir[epoch]  = compute_cross_entropy(scores_val_ir, valid_set_y.eval())
+
         diary.add_entry('training', [error_train[epoch], accuracy_train[epoch]])
         diary.add_entry('validation', [error_val[epoch], accuracy_val[epoch]])
 
-        fig = pt.plot_accuracy(accuracy_train[1:epoch], accuracy_val[1:epoch])
+        accuracy_set = (accuracy_train[1:epoch], accuracy_val[1:epoch],
+                        accuracy_train_ir[1:epoch], accuracy_val_ir[1:epoch])
+        fig = pt.plot_accuracy(accuracy_set, legend)
         diary.save_figure(fig, filename='accuracy', extension='svg')
-        fig = pt.plot_error(error_train[1:epoch], error_val[1:epoch], 'cross-entropy')
+
+        error_set = (error_train[1:epoch], error_val[1:epoch],
+                     error_train_ir[1:epoch], error_val_ir[1:epoch])
+        fig = pt.plot_error(error_set, legend, 'cross-entropy')
         diary.save_figure(fig, filename='error', extension='svg')
 
 
@@ -415,10 +441,6 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                  (best_validation_loss * 100., test_score * 100.))
     print 'The code run for %d epochs, with %f epochs/sec' % (
         epoch, 1. * epoch / (end_time - start_time))
-
-    #print >> sys.stderr, ('The code for file ' +
-    #                      os.path.split(__file__)[1] +
-    #                      ' ran for %.1fs' % ((end_time - start_time)))
 
 if __name__ == '__main__':
     sgd_optimization_gauss(learning_rate=learning_rate, batch_size=batch_size,

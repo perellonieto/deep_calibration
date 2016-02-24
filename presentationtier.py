@@ -55,12 +55,12 @@ class PresentationTier(object):
         plt.grid(True)
         return self.fig_reliability
 
-    def plot_accuracy(self, accuracy_train, accuracy_val):
+    def plot_accuracy(self, accuracy_set, legend_set):
         self.fig_acc = plt.figure('accuracy')
         plt.clf()
         plt.title("Accuracy")
-        plt.plot(accuracy_train, 'x-', label='train')
-        plt.plot(accuracy_val, '+-', label='val')
+        for accuracy, label in zip(accuracy_set, legend_set):
+            plt.plot(accuracy, label=label)
         plt.legend(loc='lower right')
         plt.ylabel('accuracy')
         plt.xlabel('epoch')
@@ -68,12 +68,12 @@ class PresentationTier(object):
         plt.draw()
         return self.fig_acc
 
-    def plot_error(self, error_train, error_val, ylabel):
+    def plot_error(self, error_set, legend_set, ylabel):
         self.fig_error = plt.figure('error')
         plt.clf()
         plt.title(ylabel)
-        plt.plot(error_train, 'x-', label='train')
-        plt.plot(error_val, '+-', label='val')
+        for error, label in zip(error_set, legend_set):
+            plt.plot(error, label=label)
         plt.legend()
         plt.ylabel(ylabel)
         plt.xlabel('epoch')
@@ -81,11 +81,11 @@ class PresentationTier(object):
         plt.draw()
         return self.fig_error
 
-    def plot_histogram_scores(self, scores_train, scores_val):
+    def plot_histogram_scores(self, scores_set):
         self.fig_hist = plt.figure('histogram_scores')
         plt.clf()
         plt.title('Histogram of scores (train)')
-        plt.hist([scores_train, scores_val], bins=numpy.linspace(0,1,11))
+        plt.hist(scores_set, bins=numpy.linspace(0,1,11))
         plt.grid(True)
         plt.draw()
         return self.fig_hist
