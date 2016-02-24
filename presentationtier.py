@@ -18,7 +18,7 @@ class PresentationTier(object):
         plt.clf()
         plt.scatter(X[:,0], X[:,1],
                     color=colors[Y], edgecolor='black')
-        plt.legend(classes)
+        #plt.legend(classes)
         return self.fig_data
 
     def update_contourline(self, x_grid, p_grid, delta=20, clabel=False):
@@ -45,15 +45,12 @@ class PresentationTier(object):
         plt.plot(centroids, numpy.true_divide(hist_pos[0]+1,hist_tot[0]+2),
                  marker, linewidth=2.0, label=label)
 
-    def plot_reliability_diagram(self, prob_train, Y_train, prob_val, Y_val,
-                             score_lin=None, prob_lin=None):
+    def plot_reliability_diagram(self, scores_set, labels_set, legend_set):
         self.fig_reliability = plt.figure('reliability_diagram')
         plt.clf()
         plt.title('Reliability diagram')
-        self.reliability_diagram(prob_train, Y_train, marker='x-', label='train.')
-        self.reliability_diagram(prob_val, Y_val, marker='+-', label='val.')
-        if score_lin != None and prob_lin != None:
-            plt.plot(score_lin, prob_lin, label='cal.')
+        for (scores, labels, legend) in zip(scores_set, labels_set, legend_set):
+            self.reliability_diagram(scores, labels, marker='x-', label=legend)
         plt.legend(loc='lower right')
         plt.grid(True)
         return self.fig_reliability
