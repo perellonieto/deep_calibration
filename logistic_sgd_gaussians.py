@@ -12,9 +12,11 @@ numpy.random.seed(42)
 import theano
 import theano.tensor as T
 
+from sklearn.isotonic import IsotonicRegression
 from presentationtier import PresentationTier
 
 from data import generate_gaussian_data
+from data import generate_opposite_cs_data
 from diary import Diary
 
 n_epochs=50
@@ -140,18 +142,18 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
     diary.add_notebook('training')
     diary.add_notebook('validation')
 
-    means=[[0,0],[5,5]]
-    cov=[[[1,0],[0,1]],[[3,0],[0,3]]]
-    samples=[4000,10000]
-    datasets = generate_gaussian_data(means, cov, samples)
-
     diary.add_notebook('data')
-    diary.add_entry('data', ['num_classes', len(samples)])
-    diary.add_entry('data', ['means', means])
-    diary.add_entry('data', ['covariance', cov])
+    samples=[4000,10000]
     diary.add_entry('data', ['samples', samples])
-
+    diary.add_entry('data', ['num_classes', len(samples)])
     diary.add_entry('data', ['batch_size', batch_size])
+
+    #means=[[0,0],[5,5]]
+    #cov=[[[1,0],[0,1]],[[3,0],[0,3]]]
+    #diary.add_entry('data', ['means', means])
+    #diary.add_entry('data', ['covariance', cov])
+    #datasets = generate_gaussian_data(means, cov, samples)
+    datasets = generate_opposite_cs_data(samples)
 
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
@@ -316,6 +318,8 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
     test_score = 0.
     start_time = time.clock()
 
+    ir = IsotonicRegression(increasing=True, out_of_bounds='clip',
+                            y_min=0, y_max=1)
     done_looping = False
     epoch = 0
     CS = None
@@ -361,13 +365,25 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
                 break
 
         scores_grid = grid_scores_model()
-        pt.update_contourline(grid_set_x.eval(), scores_grid, delta)
+        fig = pt.update_contourline(grid_set_x.eval(), scores_grid, delta)
+        diary.save_figure(fig, filename='contour_lines', extension='svg')
         scores_train = numpy.asarray([training_scores_model(i) for i
                                     in range(n_train_batches)]).flatten()
         scores_val = numpy.asarray([validation_scores_model(i) for i
                                   in range(n_valid_batches)]).flatten()
-        fig = pt.plot_reliability_diagram(scores_train, train_set_y.eval(),
-                                    scores_val, valid_set_y.eval())
+
+        print('Learning Isotonic Regression from TRAINING set')
+        ir.fit(scores_train, train_set_y.eval())
+        scores_train_ir = ir.predict(scores_train)
+        print('IR predict validation probabilities')
+        scores_val_ir  = ir.predict(scores_val)
+
+        scores_set = (scores_train, scores_val, scores_train_ir,
+                      scores_val_ir)
+        labels_set = (train_set_y.eval(), valid_set_y.eval(),
+                      train_set_y.eval(), valid_set_y.eval())
+        legend = ['train', 'valid', 'iso. train', 'iso. valid']
+        fig = pt.plot_reliability_diagram(scores_set, labels_set, legend)
         diary.save_figure(fig, filename='reliability_diagram', extension='svg')
         fig = pt.plot_histogram_scores(scores_train, scores_val)
         diary.save_figure(fig, filename='histogram_scores', extension='svg')
