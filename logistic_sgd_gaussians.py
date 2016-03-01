@@ -401,6 +401,13 @@ def sgd_optimization_gauss(learning_rate=0.13, n_epochs=1000,
         legend = ['train', 'valid', 'iso. train', 'iso. valid']
         fig = pt.plot_reliability_diagram(scores_set, labels_set, legend)
         diary.save_figure(fig, filename='reliability_diagram', extension='svg')
+
+        # TODO add reliability map
+        scores_set = (scores_train)
+        prob_set = (train_set_y.eval())
+        fig = pt.plot_reliability_map(scores_set, labels_set, legend)
+        diary.save_figure(fig, filename='reliability_map', extension='svg')
+
         fig = pt.plot_histogram_scores(scores_set)
         diary.save_figure(fig, filename='histogram_scores', extension='svg')
 

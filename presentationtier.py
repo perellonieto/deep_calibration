@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 plt.ion()
 
-import numpy
+import numpy as np
 
 class PresentationTier(object):
     def __init__(self):
@@ -10,9 +10,9 @@ class PresentationTier(object):
         # Initialize lock semaphore
 
     def plot_samples(self, X,Y, x_grid=None, p_grid=None, delta=20):
-        classes = numpy.unique(Y)
+        classes = np.unique(Y)
         color_map = plt.get_cmap('hot') # cm.rainbow
-        colors = color_map(numpy.linspace(0, 1, max(classes)+1))
+        colors = color_map(np.linspace(0, 1, max(classes)+1))
 
         self.fig_data = plt.figure('data')
         plt.clf()
@@ -36,24 +36,96 @@ class PresentationTier(object):
         plt.pause(0.00001)
         return self.fig_data
 
-    def reliability_diagram(self, prob, Y, marker='--', label=''):
-        hist_tot = numpy.histogram(prob, bins=numpy.linspace(0,1,11))
-        hist_pos = numpy.histogram(prob[Y == 1], bins=numpy.linspace(0,1,11))
+    def reliability_diagram(self, prob, Y, marker='--', label='', alpha=1,
+            linewidth=1):
+        '''
+            alpha= Laplace correction, default add-one smoothing
+        '''
+        bins = np.linspace(0,1,11)
+        hist_tot = np.histogram(prob, bins=bins)
+        hist_pos = np.histogram(prob[Y == 1], bins=bins)
         plt.plot([0,1],[0,1], 'r--')
-        centroids = [numpy.mean(numpy.append(prob[(prob > hist_tot[1][i]) * (prob <
-            hist_tot[1][i+1])], hist_tot[1][i]+0.05)) for i in range(len(hist_tot[1])-1)]
-        plt.plot(centroids, numpy.true_divide(hist_pos[0]+1,hist_tot[0]+2),
-                 marker, linewidth=2.0, label=label)
+        # Compute the centroids of every bin
+        # FIXME: check if it is incorrect to consider points in the
+        # intersection belonging to both bins
+        centroids = [np.mean(np.append(
+                     prob[np.where(np.logical_and(prob >= bins[i],
+                                                  prob <= bins[i+1]))],
+                     bins[i]+0.05)) for i in range(len(hist_tot[1])-1)]
 
-    def plot_reliability_diagram(self, scores_set, labels_set, legend_set):
+        proportion = np.true_divide(hist_pos[0]+alpha, hist_tot[0]+alpha*2)
+        self.ax_reliability.plot(centroids, proportion,
+                                 marker, linewidth=linewidth, label=label)
+
+    def plot_reliability_diagram(self, scores_set, labels_set, legend_set,
+            original_first=False, alpha=1, **kwargs):
         self.fig_reliability = plt.figure('reliability_diagram')
-        plt.clf()
-        plt.title('Reliability diagram')
+        self.fig_reliability.clf()
+        self.ax_reliability = plt.subplot(111)
+        ax = self.ax_reliability
+        ax.set_title('Reliability diagram')
+        ax.set_ylim([0,1])
+        ax.set_xlim([0,1])
+        n_lines = len(legend_set)
+        if original_first:
+            bins = np.linspace(0,1,11)
+            hist_tot = np.histogram(scores_set[0], bins=bins)
+            hist_pos = np.histogram(scores_set[0][labels_set[0] == 1], bins=bins)
+            edges = np.insert(bins, np.arange(len(bins)), bins)
+            empirical_p = np.true_divide(hist_pos[0]+alpha, hist_tot[0]+2*alpha)
+            empirical_p = np.insert(empirical_p, np.arange(len(empirical_p)),
+                    empirical_p)
+            ax.plot(edges[1:-1], empirical_p, label='empirical')
+
+        skip = original_first
         for (scores, labels, legend) in zip(scores_set, labels_set, legend_set):
-            self.reliability_diagram(scores, labels, marker='x-', label=legend)
-        plt.legend(loc='lower right')
-        plt.grid(True)
+            if skip and original_first:
+                skip = False
+            else:
+                self.reliability_diagram(scores, labels, marker='x-',
+                        label=legend, linewidth=n_lines, alpha=alpha, **kwargs)
+                n_lines -= 1
+        if original_first:
+            ax.plot(scores_set[0], labels_set[0], 'kx', label=legend_set[0],
+                    markersize=9, markeredgewidth=1)
+        ax.legend(loc='lower right')
+        ax.grid(True)
         return self.fig_reliability
+
+    def plot_reliability_map(self, scores_set, prob_set, legend_set,
+            original_first=False, alpha=1, **kwargs):
+        self.fig_reliability_map = plt.figure('reliability_map')
+        self.fig_reliability_map.clf()
+        self.ax_reliability_map = plt.subplot(111)
+        ax = self.ax_reliability_map
+        ax.set_title('Reliability map')
+        ax.set_ylim([0,1])
+        ax.set_xlim([0,1])
+        n_lines = len(legend_set)
+        if original_first:
+            bins = np.linspace(0,1,11)
+            hist_tot = np.histogram(scores_set[0], bins=bins)
+            hist_pos = np.histogram(scores_set[0][prob_set[0] == 1], bins=bins)
+            edges = np.insert(bins, np.arange(len(bins)), bins)
+            empirical_p = np.true_divide(hist_pos[0]+alpha, hist_tot[0]+2*alpha)
+            empirical_p = np.insert(empirical_p, np.arange(len(empirical_p)),
+                    empirical_p)
+            ax.plot(edges[1:-1], empirical_p, label='empirical')
+
+        skip = original_first
+        for (scores, prob, legend) in zip(scores_set, prob_set, legend_set):
+            if skip and original_first:
+                skip = False
+            else:
+                ax.plot(scores, prob, '-', label=legend,
+                          linewidth=n_lines, **kwargs)
+                n_lines -= 1
+        if original_first:
+            ax.plot(scores_set[0], prob_set[0], 'kx', label=legend_set[0],
+                    markersize=9, markeredgewidth=1)
+        ax.legend(loc='lower right')
+        ax.grid(True)
+        return self.fig_reliability_map
 
     def plot_accuracy(self, accuracy_set, legend_set):
         self.fig_acc = plt.figure('accuracy')
@@ -85,7 +157,7 @@ class PresentationTier(object):
         self.fig_hist = plt.figure('histogram_scores')
         plt.clf()
         plt.title('Histogram of scores (train)')
-        plt.hist(scores_set, bins=numpy.linspace(0,1,11))
+        plt.hist(scores_set, bins=np.linspace(0,1,11))
         plt.grid(True)
         plt.draw()
         return self.fig_hist
